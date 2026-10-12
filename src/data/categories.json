@@ -1,0 +1,37 @@
+[
+  {
+    "id": "cat-shirts",
+    "name": "Shirts",
+    "slug": "shirts",
+    "description": "Artisan embroidered and tailored casual shirts for the modern wardrobe.",
+    "image_url": "/images/products/geometric-shirt-front.jpg"
+  },
+  {
+    "id": "cat-trousers",
+    "name": "Trousers",
+    "slug": "trousers",
+    "description": "Impeccably tailored trousers with relaxed, versatile draping.",
+    "image_url": "/images/products/gray-trousers.jpg"
+  },
+  {
+    "id": "cat-dresses",
+    "name": "Dresses",
+    "slug": "dresses",
+    "description": "Handcrafted embroidered dresses and elegant silhouettes.",
+    "image_url": "/images/products/pink-floral-dress.jpg"
+  },
+  {
+    "id": "cat-accessories",
+    "name": "Accessories",
+    "slug": "accessories",
+    "description": "Curated pocket square sets and wardrobe essentials.",
+    "image_url": "/images/products/paisley-squares.jpg"
+  },
+  {
+    "id": "cat-bestseller",
+    "name": "Bestsellers",
+    "slug": "best-seller",
+    "description": "Our most sought-after signature pieces.",
+    "image_url": "/images/products/geometric-shirt-combo.jpg"
+  }
+]
