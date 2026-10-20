@@ -129,23 +129,44 @@ export function AuthProvider({ children }) {
       setIsFallbackMode(false);
       return { success: true, method: 'firebase' };
     } catch (err) {
-      console.warn('Firebase signInWithPhoneNumber notice:', err);
-      const errStr = `${err?.code || ''} ${err?.message || ''}`.toLowerCase();
+      console.error('Firebase signInWithPhoneNumber error:', err);
+      const code = (err?.code || '').toLowerCase();
+      const msg = (err?.message || '').toLowerCase();
 
-      // If Firebase Spark plan blocks carrier SMS (billing not enabled or quota exceeded):
-      const isQuotaOrBilling =
-        errStr.includes('billing') ||
-        errStr.includes('quota') ||
-        errStr.includes('internal-error') ||
-        errStr.includes('app-not-authorized');
+      // Case 1: Unauthorized Domain (e.g. wrfitzz.com not in Firebase Authorised domains)
+      if (code.includes('unauthorized-domain') || msg.includes('unauthorized domain') || code.includes('app-not-authorized')) {
+        throw new Error(
+          'Domain not authorized: Please open Firebase Console > Authentication > Settings > Authorised domains, click "Add domain" and add "wrfitzz.com" (without www).'
+        );
+      }
 
-      if (isQuotaOrBilling) {
-        setIsFallbackMode(true);
-        return {
-          success: true,
-          method: 'fallback',
-          notice: 'Firebase Spark plan detected (real SMS requires Blaze plan). You can proceed right now with test code: 123456',
-        };
+      // Case 2: Phone provider not enabled
+      if (code.includes('operation-not-allowed') || msg.includes('operation-not-allowed')) {
+        throw new Error(
+          'Phone Sign-In is not enabled. In Firebase Console, go to Authentication > Sign-in method, click "Phone" and enable it.'
+        );
+      }
+
+      // Case 3: Billing not enabled on Firebase project (Spark plan blocks real carrier SMS)
+      if (code.includes('billing-not-enabled') || msg.includes('billing') || code.includes('quota-exceeded')) {
+        throw new Error(
+          'Real carrier SMS requires the Firebase Blaze plan. In Firebase Console, click "Upgrade" in the bottom-left corner to activate Blaze (free tier includes 10,000 SMS/month), or add this number in Authentication > Sign-in method > Phone > "Phone numbers for testing".'
+        );
+      }
+
+      // Case 4: reCAPTCHA failed
+      if (code.includes('captcha-check-failed') || msg.includes('captcha')) {
+        throw new Error('reCAPTCHA verification failed. Please reload the page and try again.');
+      }
+
+      // Case 5: Invalid Phone Number
+      if (code.includes('invalid-phone-number') || msg.includes('invalid-phone-number')) {
+        throw new Error('Invalid phone number format. Please enter a valid 10-digit mobile number.');
+      }
+
+      // Case 6: Too many requests
+      if (code.includes('too-many-requests') || msg.includes('too-many-requests')) {
+        throw new Error('Too many requests. Please wait a few minutes before trying again.');
       }
 
       throw err;
