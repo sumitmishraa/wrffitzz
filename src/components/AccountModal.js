@@ -1,31 +1,33 @@
 'use client';
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
+import { useAuth } from '@/context/AuthContext';
 
 export default function AccountModal({ isOpen, onClose }) {
-  const [tab, setTab] = useState('login'); // 'login' or 'register'
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
+  const { user, sendOtp, verifyOtp, logout, updateProfile } = useAuth();
+
+  // Auth flow states: 'phone' | 'otp'
+  const [authStep, setAuthStep] = useState('phone');
+  const [phone, setPhone] = useState('');
+  const [otp, setOtp] = useState('');
+  const [nameInput, setNameInput] = useState('');
+  const [emailInput, setEmailInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
   const [submitted, setSubmitted] = useState(false);
-  const [user, setUser] = useState(null);
-  const [profileTab, setProfileTab] = useState('overview'); // 'overview', 'orders', 'address'
+  const [resendTimer, setResendTimer] = useState(30);
+  const [canResend, setCanResend] = useState(false);
+
+  // Profile tabs: 'overview' | 'orders' | 'address'
+  const [profileTab, setProfileTab] = useState('overview');
   const [savedAddress, setSavedAddress] = useState(null);
   const [orders, setOrders] = useState([]);
+  const [editProfileOpen, setEditProfileOpen] = useState(false);
 
-  // Load user and saved data
+  // Load orders & address
   useEffect(() => {
     try {
-      const savedUser = localStorage.getItem('wrfitzz-user');
-      if (savedUser) {
-        let u = JSON.parse(savedUser);
-        if (!u.name || u.name.includes('@') || u.name === 'sumitmishraa.business') {
-          u.name = 'Sumit Mishra';
-          localStorage.setItem('wrfitzz-user', JSON.stringify(u));
-        }
-        setUser(u);
-      }
-
       const addr = localStorage.getItem('wrfitzz_saved_address') || localStorage.getItem('wrfitzz-saved-address');
       if (addr) setSavedAddress(JSON.parse(addr));
 
@@ -34,6 +36,15 @@ export default function AccountModal({ isOpen, onClose }) {
     } catch (e) { /* ignore */ }
   }, [isOpen]);
 
+  // Sync inputs with user
+  useEffect(() => {
+    if (user) {
+      setNameInput(user.name || '');
+      setEmailInput(user.email || '');
+    }
+  }, [user]);
+
+  // Handle orders event
   useEffect(() => {
     const handleOpenOrders = () => {
       setProfileTab('orders');
@@ -42,6 +53,7 @@ export default function AccountModal({ isOpen, onClose }) {
     return () => window.removeEventListener('wrfitzz_open_profile_orders', handleOpenOrders);
   }, []);
 
+  // Escape key handler
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') onClose();
@@ -50,6 +62,7 @@ export default function AccountModal({ isOpen, onClose }) {
       document.body.style.overflow = 'hidden';
       window.addEventListener('keydown', handleKeyDown);
       setSubmitted(false);
+      setErrorMsg('');
     } else {
       document.body.style.overflow = '';
     }
@@ -59,42 +72,100 @@ export default function AccountModal({ isOpen, onClose }) {
     };
   }, [isOpen, onClose]);
 
+  // Resend Countdown timer
+  useEffect(() => {
+    let interval = null;
+    if (authStep === 'otp' && resendTimer > 0) {
+      interval = setInterval(() => {
+        setResendTimer(prev => prev - 1);
+      }, 1000);
+    } else if (resendTimer === 0) {
+      setCanResend(true);
+    }
+    return () => clearInterval(interval);
+  }, [authStep, resendTimer]);
+
   if (!isOpen) return null;
 
-  const handleSubmit = (e) => {
+  // Step 1: Send OTP
+  const handleSendOtp = async (e) => {
     e.preventDefault();
-    let finalName = 'Sumit Mishra';
-    if (tab === 'register') {
-      finalName = name.trim() || 'Sumit Mishra';
-    } else {
-      finalName = (user?.name && !user.name.includes('@') && user.name !== 'sumitmishraa.business')
-        ? user.name
-        : (name.trim() || 'Sumit Mishra');
+    setErrorMsg('');
+
+    const clean = phone.replace(/\D/g, '');
+    if (clean.length < 10) {
+      setErrorMsg('Please enter a valid 10-digit mobile number.');
+      return;
     }
-    const userData = {
-      name: finalName,
-      email: email.trim(),
-      phone: '+91 98765 43210',
-      joinedDate: new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }),
-    };
-    localStorage.setItem('wrfitzz-user', JSON.stringify(userData));
-    setUser(userData);
-    window.dispatchEvent(new Event('wrfitzz_user_updated'));
-    setSubmitted(true);
-    setTimeout(() => {
-      setSubmitted(false);
-    }, 1200);
+
+    setLoading(true);
+    try {
+      await sendOtp(phone, 'recaptcha-container');
+      setAuthStep('otp');
+      setResendTimer(30);
+      setCanResend(false);
+    } catch (err) {
+      console.error('Send OTP error:', err);
+      let msg = err.message || 'Failed to send OTP. Please check your connection.';
+      if (msg.includes('auth/invalid-phone-number')) {
+        msg = 'Invalid phone number format. Please provide a 10-digit mobile number.';
+      } else if (msg.includes('auth/too-many-requests')) {
+        msg = 'Too many requests. Please wait a few minutes before trying again.';
+      } else if (msg.includes('billing') || msg.includes('quota')) {
+        msg = 'Firebase SMS quota notice. Please ensure Phone Auth is enabled in Firebase Console.';
+      }
+      setErrorMsg(msg);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('wrfitzz-user');
-    setUser(null);
-    setTab('login');
-    setEmail('');
-    setPassword('');
-    setName('');
-    setProfileTab('overview');
-    window.dispatchEvent(new Event('wrfitzz_user_updated'));
+  // Step 2: Verify OTP
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault();
+    setErrorMsg('');
+
+    if (!otp || otp.trim().length < 6) {
+      setErrorMsg('Please enter the 6-digit verification code.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await verifyOtp(otp.trim(), nameInput, emailInput);
+      setSubmitted(true);
+      setTimeout(() => {
+        setSubmitted(false);
+      }, 1000);
+    } catch (err) {
+      console.error('Verify OTP error:', err);
+      let msg = 'Incorrect OTP code. Please verify and try again.';
+      if (err.message?.includes('auth/code-expired')) {
+        msg = 'This verification code has expired. Please request a new one.';
+      } else if (err.message?.includes('auth/invalid-verification-code')) {
+        msg = 'Invalid code entered. Please check the SMS and retry.';
+      }
+      setErrorMsg(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Save Name & Email
+  const handleSaveProfile = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      await updateProfile({
+        name: nameInput.trim(),
+        email: emailInput.trim(),
+      });
+      setEditProfileOpen(false);
+    } catch (err) {
+      console.error('Update profile error:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSaveAddress = (e) => {
@@ -105,7 +176,7 @@ export default function AccountModal({ isOpen, onClose }) {
       city: fd.get('city') || 'Bangalore',
       state: fd.get('state') || 'Karnataka',
       pincode: fd.get('pincode'),
-      phone: fd.get('phone'),
+      phone: fd.get('phone') || user?.phone,
       name: user?.name || 'Customer',
     };
     localStorage.setItem('wrfitzz_saved_address', JSON.stringify(newAddr));
@@ -114,9 +185,9 @@ export default function AccountModal({ isOpen, onClose }) {
 
   const initials = user?.name
     ? user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
-    : 'U';
+    : 'W';
 
-  // If user is logged in, show their Profile Dashboard
+  // LOGGED IN: Profile Dashboard
   if (user) {
     return (
       <div className="account-modal__overlay" onClick={onClose} role="dialog" aria-modal="true">
@@ -129,14 +200,58 @@ export default function AccountModal({ isOpen, onClose }) {
           <div className="profile-header">
             <div className="profile-header__avatar">{initials}</div>
             <div className="profile-header__info">
-              <h3 className="profile-header__name">{user.name}</h3>
-              <p className="profile-header__email">{user.email}</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <h3 className="profile-header__name">{user.name || 'wrfitzz Member'}</h3>
+                {user.isAdmin && (
+                  <span style={{
+                    backgroundColor: '#D4AF37',
+                    color: '#000',
+                    fontSize: '11px',
+                    fontWeight: '800',
+                    padding: '3px 8px',
+                    borderRadius: '4px',
+                    letterSpacing: '0.05em'
+                  }}>
+                    👑 ADMIN
+                  </span>
+                )}
+              </div>
+              <p className="profile-header__email">{user.email || user.phone}</p>
               <div className="profile-header__meta">
-                <span className="profile-header__badge">wrfitzz Member</span>
+                <span className="profile-header__badge" style={{ backgroundColor: '#2D6A4F', color: '#fff' }}>
+                  ✓ Phone Verified ({user.phone})
+                </span>
                 <span className="profile-header__since">Joined {user.joinedDate}</span>
               </div>
             </div>
           </div>
+
+          {/* Quick link for Admin */}
+          {user.isAdmin && (
+            <div style={{
+              margin: '12px 24px 0',
+              padding: '12px 16px',
+              backgroundColor: '#1E1E1E',
+              border: '1px solid #333',
+              borderRadius: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}>
+              <div>
+                <strong style={{ color: '#F4F4F0', fontSize: '14px', display: 'block' }}>Store Admin Privileges Active</strong>
+                <span style={{ color: '#888', fontSize: '12px' }}>You have full access to orders, products &amp; role management.</span>
+              </div>
+              <Link
+                href="/admin"
+                onClick={onClose}
+                className="btn btn--primary"
+                style={{ fontSize: '12px', padding: '8px 14px' }}
+              >
+                Open Admin Portal →
+              </Link>
+            </div>
+          )}
 
           {/* Profile Navigation Tabs */}
           <div className="profile-tabs">
@@ -165,23 +280,75 @@ export default function AccountModal({ isOpen, onClose }) {
 
           {/* Profile Content */}
           <div className="profile-content">
-            {/* OVERVIEW TAB */}
             {profileTab === 'overview' && (
               <div className="profile-overview">
                 <div className="profile-card">
-                  <h4 className="profile-card__title">Personal Details</h4>
-                  <div className="profile-card__row">
-                    <span className="profile-card__label">Full Name</span>
-                    <strong className="profile-card__value">{user.name}</strong>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                    <h4 className="profile-card__title" style={{ margin: 0 }}>Account Information</h4>
+                    <button
+                      type="button"
+                      onClick={() => setEditProfileOpen(!editProfileOpen)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#D4AF37',
+                        fontSize: '13px',
+                        cursor: 'pointer',
+                        fontWeight: '600',
+                      }}
+                    >
+                      {editProfileOpen ? 'Cancel' : 'Edit Details'}
+                    </button>
                   </div>
-                  <div className="profile-card__row">
-                    <span className="profile-card__label">Email</span>
-                    <strong className="profile-card__value">{user.email}</strong>
-                  </div>
-                  <div className="profile-card__row">
-                    <span className="profile-card__label">City Access</span>
-                    <span className="profile-card__badge-city">📍 Bangalore Hub Verified</span>
-                  </div>
+
+                  {editProfileOpen ? (
+                    <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label style={{ fontSize: '12px', color: '#999' }}>Full Name</label>
+                        <input
+                          type="text"
+                          value={nameInput}
+                          onChange={e => setNameInput(e.target.value)}
+                          placeholder="Your Name"
+                          className="form-input"
+                          required
+                        />
+                      </div>
+                      <div className="form-group" style={{ marginBottom: 0 }}>
+                        <label style={{ fontSize: '12px', color: '#999' }}>Email Address</label>
+                        <input
+                          type="email"
+                          value={emailInput}
+                          onChange={e => setEmailInput(e.target.value)}
+                          placeholder="name@example.com"
+                          className="form-input"
+                          required
+                        />
+                      </div>
+                      <button type="submit" disabled={loading} className="btn btn--primary btn--sm" style={{ alignSelf: 'flex-start' }}>
+                        {loading ? 'Saving...' : 'Save Changes'}
+                      </button>
+                    </form>
+                  ) : (
+                    <>
+                      <div className="profile-card__row">
+                        <span className="profile-card__label">Mobile Phone</span>
+                        <strong className="profile-card__value">{user.phone}</strong>
+                      </div>
+                      <div className="profile-card__row">
+                        <span className="profile-card__label">Full Name</span>
+                        <strong className="profile-card__value">{user.name || 'Not provided'}</strong>
+                      </div>
+                      <div className="profile-card__row">
+                        <span className="profile-card__label">Email</span>
+                        <strong className="profile-card__value">{user.email || 'Not provided'}</strong>
+                      </div>
+                      <div className="profile-card__row">
+                        <span className="profile-card__label">Status</span>
+                        <span className="profile-card__badge-city">📍 Bangalore Hub Verified</span>
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 <div className="profile-card profile-card--perks">
@@ -197,21 +364,21 @@ export default function AccountModal({ isOpen, onClose }) {
                     <div className="profile-perk-item">
                       <span>🎟️</span>
                       <div>
-                        <strong>10% Off Prepaid Orders</strong>
-                        <p>Use code PREPAID10 at checkout</p>
+                        <strong>Razorpay Instant Checkout</strong>
+                        <p>Secure UPI, Card &amp; Netbanking payments</p>
                       </div>
                     </div>
                   </div>
                 </div>
 
-                <button type="button" className="profile-logout-btn" onClick={handleLogout}>
+                <button type="button" className="profile-logout-btn" onClick={logout}>
                   <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" /></svg>
                   Sign Out from wrfitzz
                 </button>
               </div>
             )}
 
-            {/* TRACK ORDERS TAB */}
+            {/* ORDERS TAB */}
             {profileTab === 'orders' && (
               <div className="profile-orders">
                 {orders.length === 0 ? (
@@ -239,11 +406,10 @@ export default function AccountModal({ isOpen, onClose }) {
                             </span>
                           </div>
                           <span className="order-status-badge">
-                            {ord.payment_status === 'PENDING_COD' ? 'Cash On Delivery' : 'Dispatched · Bangalore'}
+                            {ord.payment_status === 'PAID' ? '✓ Paid via Razorpay' : (ord.payment_status === 'PENDING_COD' ? 'Cash On Delivery' : 'Dispatched')}
                           </span>
                         </div>
 
-                        {/* Tracking tracker timeline */}
                         <div className="order-history-tracker">
                           <div className="tracker-header">
                             <span className="tracker-eta">⚡ {ord.estimatedDelivery || 'Estimated Delivery: Tomorrow'}</span>
@@ -260,7 +426,6 @@ export default function AccountModal({ isOpen, onClose }) {
                           </div>
                         </div>
 
-                        {/* Order Items */}
                         <div className="order-history-items">
                           {ord.items?.map((it, i) => (
                             <div key={i} className="order-history-item-line">
@@ -293,7 +458,7 @@ export default function AccountModal({ isOpen, onClose }) {
               </div>
             )}
 
-            {/* SAVED ADDRESS TAB */}
+            {/* ADDRESS TAB */}
             {profileTab === 'address' && (
               <div className="profile-address">
                 {savedAddress ? (
@@ -313,7 +478,7 @@ export default function AccountModal({ isOpen, onClose }) {
                     <p className="addr-city-pin">
                       📍 {savedAddress.city || 'Bangalore'}, {savedAddress.state || 'Karnataka'} - <strong>{savedAddress.pincode}</strong>
                     </p>
-                    <p className="addr-phone">📞 {savedAddress.phone || '+91 98765 43210'}</p>
+                    <p className="addr-phone">📞 {savedAddress.phone || user.phone}</p>
                     <div className="addr-blr-verified">
                       ✓ Validated for Bangalore Express Next-Day Shipping
                     </div>
@@ -375,6 +540,7 @@ export default function AccountModal({ isOpen, onClose }) {
                           name="phone"
                           type="tel"
                           required
+                          defaultValue={user.phone}
                           placeholder="+91 98765 43210"
                           className="profile-form__input"
                         />
@@ -394,7 +560,7 @@ export default function AccountModal({ isOpen, onClose }) {
     );
   }
 
-  // If user is not logged in, show Auth / Sign in form
+  // NOT LOGGED IN: Phone OTP Authentication
   return (
     <div className="account-modal__overlay" onClick={onClose} role="dialog" aria-modal="true">
       <div className="account-modal__container" onClick={e => e.stopPropagation()}>
@@ -402,79 +568,185 @@ export default function AccountModal({ isOpen, onClose }) {
           ✕
         </button>
 
+        {/* Brand Header */}
         <div className="account-modal__header">
           <div className="account-modal__logo">wr<span>fitzz</span>.</div>
           <p className="account-modal__subtitle">Streetwear crafted for the bold · Bangalore Hub</p>
         </div>
 
-        <div className="account-modal__tabs">
-          <button
-            className={`account-modal__tab ${tab === 'login' ? 'account-modal__tab--active' : ''}`}
-            onClick={() => { setTab('login'); setSubmitted(false); }}
-          >
-            Sign In
-          </button>
-          <button
-            className={`account-modal__tab ${tab === 'register' ? 'account-modal__tab--active' : ''}`}
-            onClick={() => { setTab('register'); setSubmitted(false); }}
-          >
-            Create Account
-          </button>
-        </div>
+        {/* reCAPTCHA container for Firebase invisible verifier */}
+        <div id="recaptcha-container"></div>
 
         {submitted ? (
           <div className="account-modal__success">
             <div className="account-modal__success-icon">✓</div>
-            <h3>{tab === 'login' ? 'Welcome Back!' : 'Account Created!'}</h3>
-            <p>You are now signed in to wrfitzz.</p>
+            <h3>Verified &amp; Signed In!</h3>
+            <p>Welcome to wrfitzz. Loading your profile...</p>
           </div>
-        ) : (
-          <form className="account-modal__form" onSubmit={handleSubmit}>
-            {tab === 'register' && (
-              <div className="form-group">
-                <label>Full Name *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Sumit Mishra"
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  className="form-input"
-                />
+        ) : authStep === 'phone' ? (
+          /* STEP 1: Phone Input */
+          <form className="account-modal__form" onSubmit={handleSendOtp}>
+            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#F4F4F0', marginBottom: '6px' }}>
+                Sign In with Mobile OTP
+              </h3>
+              <p style={{ fontSize: '13px', color: '#A0A09B' }}>
+                Enter your phone number to receive a 6-digit verification code.
+              </p>
+            </div>
+
+            {errorMsg && (
+              <div style={{
+                backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                border: '1px solid rgba(239, 68, 68, 0.4)',
+                borderRadius: '6px',
+                padding: '10px 14px',
+                color: '#f87171',
+                fontSize: '13px',
+                marginBottom: '16px',
+                lineHeight: 1.4,
+              }}>
+                {errorMsg}
               </div>
             )}
 
             <div className="form-group">
-              <label>Email Address *</label>
-              <input
-                type="email"
-                required
-                placeholder="name@example.com"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                className="form-input"
-              />
+              <label style={{ fontSize: '12px', fontWeight: '600', color: '#CCCCCC' }}>
+                Mobile Number <span style={{ color: '#D4AF37' }}>*</span>
+              </label>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <span style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '0 12px',
+                  backgroundColor: '#262624',
+                  border: '1px solid #3A3A36',
+                  borderRadius: '6px',
+                  color: '#F4F4F0',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                }}>
+                  🇮🇳 +91
+                </span>
+                <input
+                  type="tel"
+                  required
+                  maxLength={10}
+                  placeholder="98765 43210"
+                  value={phone}
+                  onChange={e => setPhone(e.target.value.replace(/\D/g, ''))}
+                  className="form-input"
+                  style={{ flex: 1 }}
+                  autoFocus
+                />
+              </div>
             </div>
 
-            <div className="form-group">
-              <label>Password *</label>
-              <input
-                type="password"
-                required
-                placeholder="••••••••"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                className="form-input"
-              />
-            </div>
-
-            <button type="submit" className="btn btn--primary btn--full btn--lg">
-              {tab === 'login' ? 'SIGN IN TO WRFITZZ' : 'CREATE ACCOUNT'}
+            <button
+              type="submit"
+              disabled={loading || phone.length < 10}
+              className="btn btn--primary btn--full btn--lg"
+              style={{ marginTop: '8px' }}
+            >
+              {loading ? 'SENDING OTP...' : 'GET VERIFICATION CODE →'}
             </button>
 
-            <div className="account-modal__perks">
-              <span>🎁 10% Off on Prepaid Orders</span>
-              <span>⚡ Bangalore Express Shipping</span>
+            <div className="account-modal__perks" style={{ marginTop: '20px' }}>
+              <span>🔒 100% Secure Firebase OTP</span>
+              <span>⚡ Fast Bangalore 1-Click Checkout</span>
+            </div>
+          </form>
+        ) : (
+          /* STEP 2: OTP Verification */
+          <form className="account-modal__form" onSubmit={handleVerifyOtp}>
+            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: '700', color: '#F4F4F0', marginBottom: '6px' }}>
+                Enter Verification Code
+              </h3>
+              <p style={{ fontSize: '13px', color: '#A0A09B' }}>
+                Code sent to <strong>+91 {phone}</strong> &nbsp;
+                <button
+                  type="button"
+                  onClick={() => { setAuthStep('phone'); setOtp(''); setErrorMsg(''); }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#D4AF37',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    textDecoration: 'underline',
+                  }}
+                >
+                  Change
+                </button>
+              </p>
+            </div>
+
+            {errorMsg && (
+              <div style={{
+                backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                border: '1px solid rgba(239, 68, 68, 0.4)',
+                borderRadius: '6px',
+                padding: '10px 14px',
+                color: '#f87171',
+                fontSize: '13px',
+                marginBottom: '16px',
+                lineHeight: 1.4,
+              }}>
+                {errorMsg}
+              </div>
+            )}
+
+            <div className="form-group">
+              <label style={{ fontSize: '12px', fontWeight: '600', color: '#CCCCCC' }}>
+                6-Digit OTP Code <span style={{ color: '#D4AF37' }}>*</span>
+              </label>
+              <input
+                type="text"
+                required
+                maxLength={6}
+                placeholder="1 2 3 4 5 6"
+                value={otp}
+                onChange={e => setOtp(e.target.value.replace(/\D/g, ''))}
+                className="form-input"
+                style={{
+                  fontSize: '22px',
+                  letterSpacing: '0.4em',
+                  textAlign: 'center',
+                  fontWeight: '700',
+                  padding: '12px',
+                }}
+                autoFocus
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading || otp.length < 6}
+              className="btn btn--primary btn--full btn--lg"
+              style={{ marginTop: '8px' }}
+            >
+              {loading ? 'VERIFYING...' : 'VERIFY & SIGN IN →'}
+            </button>
+
+            <div style={{ textAlign: 'center', marginTop: '16px', fontSize: '13px', color: '#888' }}>
+              {canResend ? (
+                <button
+                  type="button"
+                  onClick={handleSendOtp}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: '#D4AF37',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Resend OTP Code
+                </button>
+              ) : (
+                <span>Resend OTP in <strong>{resendTimer}s</strong></span>
+              )}
             </div>
           </form>
         )}

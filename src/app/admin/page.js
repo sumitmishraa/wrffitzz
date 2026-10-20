@@ -3,18 +3,21 @@ import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import './admin.css';
+import { useAuth } from '@/context/AuthContext';
 
 const DEFAULT_PIN = 'wrfitzz@2026';
 
 export default function AdminDashboardPage() {
+  const { user } = useAuth();
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authPin, setAuthPin] = useState('');
   const [authError, setAuthError] = useState('');
   const [adminToken, setAdminToken] = useState('');
 
-  const [activeTab, setActiveTab] = useState('orders'); // 'orders' | 'products' | 'analytics'
+  const [activeTab, setActiveTab] = useState('orders'); // 'orders' | 'products' | 'analytics' | 'users'
   const [orders, setOrders] = useState([]);
   const [products, setProducts] = useState([]);
+  const [usersList, setUsersList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
 
@@ -101,9 +104,72 @@ export default function AdminDashboardPage() {
     }
   };
 
+  // Fetch Users List
+  const fetchUsers = async (token = adminToken) => {
+    if (!token) return;
+    try {
+      const res = await fetch('/api/user?all=true', {
+        headers: { 'x-admin-token': token },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUsersList(Array.isArray(data) ? data : []);
+      }
+    } catch (e) {
+      console.warn('Error fetching users:', e);
+    }
+  };
+
+  // Toggle user admin role in Supabase
+  const handleToggleUserAdmin = async (targetPhone, currentStatus) => {
+    try {
+      const res = await fetch('/api/user', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-token': adminToken,
+        },
+        body: JSON.stringify({
+          phone: targetPhone,
+          is_admin: !currentStatus,
+        }),
+      });
+      if (res.ok) {
+        showToast(`Admin privilege updated for ${targetPhone}`);
+        fetchUsers(adminToken);
+      } else {
+        showToast('Failed to update admin role in Supabase');
+      }
+    } catch (e) {
+      showToast('Error updating admin role');
+    }
+  };
+
+  // Automatically authenticate if user logged in with phone and has is_admin in Supabase
+  useEffect(() => {
+    if (user?.phone && !isAuthenticated) {
+      fetch('/api/admin/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: user.phone }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.authorized && data.token) {
+            sessionStorage.setItem('wrfitzz_admin_token', data.token);
+            setAdminToken(data.token);
+            setIsAuthenticated(true);
+            showToast(`Welcome Admin ${user.name || user.phone}`);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [user, isAuthenticated]);
+
   useEffect(() => {
     if (isAuthenticated && adminToken) {
       fetchData(adminToken);
+      fetchUsers(adminToken);
     }
   }, [isAuthenticated, adminToken]);
 
@@ -401,8 +467,109 @@ export default function AdminDashboardPage() {
           <div className="admin-lock-icon">🔒</div>
           <h1 className="admin-lock-title">wrfitzz. Atelier Command</h1>
           <p className="admin-lock-desc">
-            Private Owner Access. Enter your security PIN to unlock order tracking and inventory management.
+            Private Owner Access. Access is assigned based on verified phone numbers in Supabase or master PIN.
           </p>
+
+          {/* Supabase Phone Admin Card */}
+          {user ? (
+            <div style={{
+              backgroundColor: '#1E1E1E',
+              border: '1px solid #333',
+              borderRadius: '8px',
+              padding: '16px',
+              marginBottom: '20px',
+              textAlign: 'left',
+            }}>
+              <div style={{ fontSize: '13px', color: '#999', marginBottom: '4px' }}>Logged-in Mobile Session:</div>
+              <strong style={{ fontSize: '15px', color: '#F4F4F0', display: 'block', marginBottom: '8px' }}>
+                📱 {user.phone}
+              </strong>
+              {user.isAdmin ? (
+                <div>
+                  <span style={{
+                    display: 'inline-block',
+                    backgroundColor: '#2D6A4F',
+                    color: '#fff',
+                    fontSize: '11px',
+                    fontWeight: 700,
+                    padding: '3px 8px',
+                    borderRadius: '4px',
+                    marginBottom: '12px',
+                  }}>
+                    ✓ Admin Privileges Verified in Supabase
+                  </span>
+                  <button
+                    type="button"
+                    className="admin-lock-btn"
+                    style={{ marginTop: 0 }}
+                    onClick={() => {
+                      fetch('/api/admin/auth', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ phone: user.phone }),
+                      })
+                        .then(r => r.json())
+                        .then(d => {
+                          if (d.authorized && d.token) {
+                            sessionStorage.setItem('wrfitzz_admin_token', d.token);
+                            setAdminToken(d.token);
+                            setIsAuthenticated(true);
+                          }
+                        });
+                    }}
+                  >
+                    Enter Atelier Command →
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <p style={{ fontSize: '12px', color: '#f87171', margin: '0 0 10px', lineHeight: 1.4 }}>
+                    This phone number is not toggled as admin in Supabase yet. In your Supabase Table Editor, click the <code>is_admin</code> checkbox for this phone number, then click Re-check below.
+                  </p>
+                  <button
+                    type="button"
+                    className="admin-btn admin-btn--outline admin-btn--sm"
+                    style={{ width: '100%', borderColor: '#555', color: '#F4F4F0' }}
+                    onClick={() => {
+                      fetch('/api/admin/auth', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ phone: user.phone }),
+                      })
+                        .then(r => r.json())
+                        .then(d => {
+                          if (d.authorized && d.token) {
+                            sessionStorage.setItem('wrfitzz_admin_token', d.token);
+                            setAdminToken(d.token);
+                            setIsAuthenticated(true);
+                            showToast('Admin access verified!');
+                          } else {
+                            setAuthError('Admin privilege not detected yet. Please ensure is_admin=true in Supabase.');
+                          }
+                        });
+                    }}
+                  >
+                    🔄 Re-check Supabase Admin Status
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{
+              backgroundColor: '#1E1E1E',
+              border: '1px solid #333',
+              borderRadius: '8px',
+              padding: '12px 16px',
+              marginBottom: '20px',
+              fontSize: '13px',
+              color: '#A0A09B',
+              textAlign: 'left',
+            }}>
+              💡 <strong>Phone-Based Admin:</strong> Sign in with your mobile number via the main website header to unlock automatic admin authentication.
+            </div>
+          )}
+
+          <div style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>OR ENTER MASTER OWNER PIN</div>
 
           <form onSubmit={handleLogin} className="admin-lock-form">
             <input
@@ -412,13 +579,12 @@ export default function AdminDashboardPage() {
               placeholder="Enter Owner PIN (default: wrfitzz@2026)"
               value={authPin}
               onChange={(e) => setAuthPin(e.target.value)}
-              autoFocus
             />
 
             {authError && <div className="admin-lock-error">{authError}</div>}
 
             <button type="submit" className="admin-lock-btn">
-              Unlock Control Center →
+              Unlock via PIN →
             </button>
           </form>
         </div>
@@ -455,6 +621,13 @@ export default function AdminDashboardPage() {
             >
               <span>🏷️ Products Catalog</span>
               <span className="admin-nav-count">{products.length}</span>
+            </button>
+            <button
+              className={`admin-nav-btn ${activeTab === 'users' ? 'active' : ''}`}
+              onClick={() => { setActiveTab('users'); fetchUsers(adminToken); }}
+            >
+              <span>👥 Users &amp; Admins</span>
+              <span className="admin-nav-count">{usersList.length}</span>
             </button>
             <button
               className={`admin-nav-btn ${activeTab === 'analytics' ? 'active' : ''}`}
@@ -922,6 +1095,112 @@ export default function AdminDashboardPage() {
                     Every wrfitzz garment is hand-inspected in Bangalore, wrapped in sustainable matte acid-free paper, and stamped with the archival capsule tag before courier pickup.
                   </p>
                 </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ========================================================
+            TAB 4: USERS & ADMIN PRIVILEGES
+            ======================================================== */}
+        {activeTab === 'users' && (
+          <section className="admin-section">
+            <div className="admin-section-header">
+              <div>
+                <h2>Users &amp; Admin Privileges</h2>
+                <p>Assign admin roles based on verified customer mobile numbers. Syncs in real time with Supabase.</p>
+              </div>
+
+              <div className="admin-controls-row">
+                <button
+                  type="button"
+                  className="admin-btn admin-btn--outline"
+                  onClick={() => fetchUsers(adminToken)}
+                >
+                  🔄 Refresh Users ({usersList.length})
+                </button>
+              </div>
+            </div>
+
+            <div className="admin-card">
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Customer Phone</th>
+                    <th>Full Name</th>
+                    <th>Email Address</th>
+                    <th>Registration Date</th>
+                    <th>Role Status</th>
+                    <th>Admin Assignment</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {usersList.length === 0 ? (
+                    <tr>
+                      <td colSpan="6" style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
+                        No registered phone numbers found in Supabase yet. When users sign in via mobile OTP, they will appear here.
+                      </td>
+                    </tr>
+                  ) : (
+                    usersList.map((usr) => (
+                      <tr key={usr.id || usr.phone}>
+                        <td>
+                          <div style={{ fontWeight: 700, color: '#0f172a' }}>
+                            {usr.phone}
+                          </div>
+                          <span style={{ fontSize: '11px', color: '#16a34a' }}>✓ Phone Verified</span>
+                        </td>
+                        <td>{usr.name || 'wrfitzz Member'}</td>
+                        <td>{usr.email || '—'}</td>
+                        <td>
+                          {usr.created_at ? new Date(usr.created_at).toLocaleDateString('en-IN', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                          }) : 'Recent'}
+                        </td>
+                        <td>
+                          {usr.is_admin ? (
+                            <span style={{
+                              backgroundColor: '#D4AF37',
+                              color: '#000',
+                              fontWeight: 800,
+                              fontSize: '11px',
+                              padding: '4px 8px',
+                              borderRadius: '4px',
+                            }}>
+                              👑 STORE ADMIN
+                            </span>
+                          ) : (
+                            <span style={{
+                              backgroundColor: '#f1f5f9',
+                              color: '#475569',
+                              fontWeight: 600,
+                              fontSize: '11px',
+                              padding: '4px 8px',
+                              borderRadius: '4px',
+                            }}>
+                              CUSTOMER
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className={`admin-btn ${usr.is_admin ? 'admin-btn--outline' : 'admin-btn--primary'} admin-btn--sm`}
+                            onClick={() => handleToggleUserAdmin(usr.phone, usr.is_admin)}
+                          >
+                            {usr.is_admin ? 'Revoke Admin' : 'Make Admin 👑'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+
+              <div style={{ padding: '16px 20px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', fontSize: '13px', color: '#475569' }}>
+                💡 <strong>Supabase Table Editor:</strong> You can also assign admin privileges directly from the Supabase Dashboard: open the <code>users</code> table and check or uncheck the <code>is_admin</code> checkbox for any phone number.
               </div>
             </div>
           </section>

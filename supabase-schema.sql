@@ -43,6 +43,19 @@ CREATE TABLE IF NOT EXISTS products (
 );
 
 -- ============================================
+-- USERS TABLE (Phone Auth & Admin Privileges)
+-- ============================================
+CREATE TABLE IF NOT EXISTS users (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  phone TEXT UNIQUE NOT NULL,
+  name TEXT,
+  email TEXT,
+  is_admin BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================
 -- ORDERS TABLE
 -- ============================================
 CREATE TABLE IF NOT EXISTS orders (
@@ -56,8 +69,18 @@ CREATE TABLE IF NOT EXISTS orders (
   pincode TEXT NOT NULL,
   total_amount NUMERIC(10,2) NOT NULL,
   status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'shipped', 'delivered', 'cancelled')),
+  payment_method TEXT DEFAULT 'COD',
+  payment_status TEXT DEFAULT 'PENDING',
+  razorpay_order_id TEXT,
+  razorpay_payment_id TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Migration for existing orders table:
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_method TEXT DEFAULT 'COD';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status TEXT DEFAULT 'PENDING';
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS razorpay_order_id TEXT;
+ALTER TABLE orders ADD COLUMN IF NOT EXISTS razorpay_payment_id TEXT;
 
 -- ============================================
 -- ORDER ITEMS TABLE
@@ -75,20 +98,27 @@ CREATE TABLE IF NOT EXISTS order_items (
 );
 
 -- ============================================
--- ROW LEVEL SECURITY (Open for now - no auth)
+-- ROW LEVEL SECURITY
 -- ============================================
 ALTER TABLE categories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 
 -- Allow public read access to categories and products
 CREATE POLICY "Allow public read categories" ON categories FOR SELECT USING (true);
 CREATE POLICY "Allow public read products" ON products FOR SELECT USING (true);
 
--- Allow public insert for orders (no auth yet)
+-- Users policies
+CREATE POLICY "Allow public read users" ON users FOR SELECT USING (true);
+CREATE POLICY "Allow public insert users" ON users FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public update users" ON users FOR UPDATE USING (true);
+
+-- Allow public insert and read for orders
 CREATE POLICY "Allow public insert orders" ON orders FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public read orders" ON orders FOR SELECT USING (true);
+CREATE POLICY "Allow public update orders" ON orders FOR UPDATE USING (true);
 
 CREATE POLICY "Allow public insert order_items" ON order_items FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public read order_items" ON order_items FOR SELECT USING (true);

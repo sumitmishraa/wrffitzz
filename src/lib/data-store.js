@@ -274,6 +274,10 @@ export function createStoreOrder(orderData) {
         pincode: newOrder.pincode,
         total_amount: newOrder.total_amount,
         status: newOrder.status,
+        payment_method: newOrder.payment_method || 'COD',
+        payment_status: newOrder.payment_status || 'PENDING',
+        razorpay_order_id: newOrder.razorpay_order_id || null,
+        razorpay_payment_id: newOrder.razorpay_payment_id || null,
       }).select().single().then(({ data: orderRow, error: orderErr }) => {
         if (!orderErr && orderRow && Array.isArray(newOrder.items)) {
           const itemsRows = newOrder.items.map(it => ({

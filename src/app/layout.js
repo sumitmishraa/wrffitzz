@@ -1,4 +1,5 @@
 import './globals.css';
+import { AuthProvider } from '@/context/AuthContext';
 import { CartProvider } from '@/context/CartContext';
 import { WishlistProvider } from '@/context/WishlistContext';
 import Header from '@/components/Header';
@@ -16,15 +17,17 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en">
       <body>
-        <CartProvider>
-          <WishlistProvider>
-            <Header />
-            <CartDrawer />
-            <main>{children}</main>
-            <Footer />
-            <ScrollToTop />
-          </WishlistProvider>
-        </CartProvider>
+        <AuthProvider>
+          <CartProvider>
+            <WishlistProvider>
+              <Header />
+              <CartDrawer />
+              <main>{children}</main>
+              <Footer />
+              <ScrollToTop />
+            </WishlistProvider>
+          </CartProvider>
+        </AuthProvider>
       </body>
     </html>
   );

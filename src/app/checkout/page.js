@@ -4,6 +4,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCart } from '@/context/CartContext';
+import { useAuth } from '@/context/AuthContext';
 
 // Bangalore pincodes range (560001 - 560117 and surrounding areas)
 const BANGALORE_PINCODES = [];
@@ -22,6 +23,7 @@ function isBangalorePincode(pin) {
 export default function CheckoutPage() {
   const router = useRouter();
   const { items, totalPrice } = useCart();
+  const { user, updateProfile } = useAuth();
   const [loading, setLoading] = useState(false);
   const [pincodeError, setPincodeError] = useState('');
   const [pincodeValid, setPincodeValid] = useState(false);
@@ -36,19 +38,21 @@ export default function CheckoutPage() {
     pincode: '',
   });
 
+  // Sync user profile from AuthContext
+  useEffect(() => {
+    if (user) {
+      const cleanPhone = (user.phone || '').replace(/\+91|\D/g, '').slice(-10);
+      setForm(prev => ({
+        ...prev,
+        customer_phone: prev.customer_phone || cleanPhone,
+        customer_name: prev.customer_name || (user.name !== 'wrfitzz Member' ? user.name : ''),
+        customer_email: prev.customer_email || user.email || '',
+      }));
+    }
+  }, [user]);
+
   useEffect(() => {
     try {
-      // Auto-load user profile if logged in
-      const savedUserStr = localStorage.getItem('wrfitzz-user');
-      if (savedUserStr) {
-        const u = JSON.parse(savedUserStr);
-        setForm(prev => ({
-          ...prev,
-          customer_name: prev.customer_name || u.name || '',
-          customer_email: prev.customer_email || u.email || '',
-        }));
-      }
-
       // Auto-load saved address
       const savedAddressStr = localStorage.getItem('wrfitzz_saved_address') || localStorage.getItem('wrfitzz-saved-address');
       if (savedAddressStr) {
@@ -149,6 +153,14 @@ export default function CheckoutPage() {
         phone: form.customer_phone,
         name: form.customer_name,
       }));
+
+      // Persist profile to Supabase if logged in
+      if (user?.phone) {
+        updateProfile({
+          name: form.customer_name,
+          email: form.customer_email,
+        });
+      }
     } catch (err) {
       console.warn('LocalStorage save error', err);
     }
@@ -216,6 +228,36 @@ export default function CheckoutPage() {
                 </div>
               </div>
               <div className="checkout-card__body">
+                {user ? (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '8px 14px',
+                    backgroundColor: 'rgba(45, 106, 79, 0.15)',
+                    border: '1px solid rgba(45, 106, 79, 0.35)',
+                    borderRadius: '6px',
+                    color: '#2D6A4F',
+                    fontSize: '13px',
+                    fontWeight: '600',
+                    marginBottom: '16px',
+                  }}>
+                    <span>✓</span>
+                    <span>Logged in with Mobile OTP: <strong>{user.phone}</strong> (Phone Verified)</span>
+                  </div>
+                ) : (
+                  <div style={{
+                    padding: '8px 14px',
+                    backgroundColor: '#262624',
+                    border: '1px solid #3A3A36',
+                    borderRadius: '6px',
+                    color: '#CCCCCC',
+                    fontSize: '13px',
+                    marginBottom: '16px',
+                  }}>
+                    💡 Complete contact details below to receive Bangalore express dispatch notifications.
+                  </div>
+                )}
                 <div className="checkout-form__grid">
                   <div className="checkout-form__field checkout-form__field--full">
                     <label className="checkout-form__label" htmlFor="customer_name">

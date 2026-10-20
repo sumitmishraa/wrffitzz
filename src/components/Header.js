@@ -5,41 +5,18 @@ import { useCart } from '@/context/CartContext';
 import { useWishlist } from '@/context/WishlistContext';
 import SearchModal from './SearchModal';
 import AccountModal from './AccountModal';
+import { useAuth } from '@/context/AuthContext';
 
 export default function Header() {
   const { totalItems, setIsOpen: setCartOpen } = useCart();
   const { totalItems: wishlistTotal } = useWishlist();
+  const { user } = useAuth();
 
   const [announcementVisible, setAnnouncementVisible] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
-  const [loggedInUser, setLoggedInUser] = useState(null);
-
-  const loadUser = () => {
-    try {
-      const saved = localStorage.getItem('wrfitzz-user');
-      if (saved) {
-        let parsed = JSON.parse(saved);
-        if (!parsed.name || parsed.name.includes('@') || parsed.name === 'sumitmishraa.business') {
-          parsed.name = 'Sumit Mishra';
-          localStorage.setItem('wrfitzz-user', JSON.stringify(parsed));
-        }
-        setLoggedInUser(parsed);
-      }
-    } catch (e) { /* ignore */ }
-  };
-
-  useEffect(() => {
-    loadUser();
-    window.addEventListener('wrfitzz_user_updated', loadUser);
-    return () => window.removeEventListener('wrfitzz_user_updated', loadUser);
-  }, []);
-
-  useEffect(() => {
-    loadUser();
-  }, [accountOpen]);
 
   useEffect(() => {
     const handleOpenOrders = () => {
@@ -158,21 +135,39 @@ export default function Header() {
               </svg>
             </button>
 
-            {/* Account - Displays Full Name (e.g. Sumit Mishra) */}
+            {/* Account - Displays Verified User or Sign In */}
             <button
               className="sf-header__action-btn sf-header__account-btn"
               onClick={() => setAccountOpen(true)}
               aria-label="Account"
-              title="Account"
+              title={user ? (user.name || user.phone) : 'Sign In'}
             >
-              {loggedInUser ? (
-                <span className="sf-header__user-avatar">{loggedInUser.name.charAt(0).toUpperCase()}</span>
+              {user ? (
+                <span className="sf-header__user-avatar" style={{ position: 'relative' }}>
+                  {(user.name && user.name.trim().length > 0)
+                    ? user.name.charAt(0).toUpperCase()
+                    : '📱'}
+                  {user.isAdmin && (
+                    <span style={{
+                      position: 'absolute',
+                      top: '-6px',
+                      right: '-6px',
+                      fontSize: '11px',
+                    }}>
+                      👑
+                    </span>
+                  )}
+                </span>
               ) : (
                 <svg width="20" height="20" fill="currentColor" viewBox="0 0 448 512">
                   <path d="M313.6 304c-28.7 0-42.5 16-89.6 16-47.1 0-60.8-16-89.6-16C60.2 304 0 364.2 0 438.4V464c0 26.5 21.5 48 48 48h352c26.5 0 48-21.5 48-48v-25.6c0-74.2-60.2-134.4-134.4-134.4zM400 464H48v-25.6c0-47.6 38.8-86.4 86.4-86.4 14.6 0 38.3 16 89.6 16 51.7 0 74.9-16 89.6-16 47.6 0 86.4 38.8 86.4 86.4V464zM224 288c79.5 0 144-64.5 144-144S303.5 0 224 0 80 64.5 80 144s64.5 144 144 144zm0-240c52.9 0 96 43.1 96 96s-43.1 96-96 96-96-43.1-96-96 43.1-96 96-96z" />
                 </svg>
               )}
-              {loggedInUser && <span className="sf-header__user-name">{loggedInUser.name}</span>}
+              {user && (
+                <span className="sf-header__user-name">
+                  {user.name && user.name !== 'wrfitzz Member' ? user.name.split(' ')[0] : (user.phone ? user.phone.slice(-4) : 'Account')}
+                </span>
+              )}
             </button>
 
             {/* Wishlist */}
