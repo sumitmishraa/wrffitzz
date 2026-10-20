@@ -15,6 +15,7 @@ export default function AccountModal({ isOpen, onClose }) {
   const [emailInput, setEmailInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [infoNotice, setInfoNotice] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [resendTimer, setResendTimer] = useState(30);
   const [canResend, setCanResend] = useState(false);
@@ -91,6 +92,7 @@ export default function AccountModal({ isOpen, onClose }) {
   const handleSendOtp = async (e) => {
     e.preventDefault();
     setErrorMsg('');
+    setInfoNotice('');
 
     const clean = phone.replace(/\D/g, '');
     if (clean.length < 10) {
@@ -100,10 +102,13 @@ export default function AccountModal({ isOpen, onClose }) {
 
     setLoading(true);
     try {
-      await sendOtp(phone, 'recaptcha-container');
+      const res = await sendOtp(phone, 'recaptcha-container');
       setAuthStep('otp');
       setResendTimer(30);
       setCanResend(false);
+      if (res?.notice) {
+        setInfoNotice(res.notice);
+      }
     } catch (err) {
       console.error('Send OTP error:', err);
       let msg = err.message || 'Failed to send OTP. Please check your connection.';
@@ -111,8 +116,6 @@ export default function AccountModal({ isOpen, onClose }) {
         msg = 'Invalid phone number format. Please provide a 10-digit mobile number.';
       } else if (msg.includes('auth/too-many-requests')) {
         msg = 'Too many requests. Please wait a few minutes before trying again.';
-      } else if (msg.includes('billing') || msg.includes('quota')) {
-        msg = 'Firebase SMS quota notice. Please ensure Phone Auth is enabled in Firebase Console.';
       }
       setErrorMsg(msg);
     } finally {
@@ -218,8 +221,8 @@ export default function AccountModal({ isOpen, onClose }) {
               </div>
               <p className="profile-header__email">{user.email || user.phone}</p>
               <div className="profile-header__meta">
-                <span className="profile-header__badge" style={{ backgroundColor: '#2D6A4F', color: '#fff' }}>
-                  ✓ Phone Verified ({user.phone})
+                <span className="profile-header__badge" style={{ backgroundColor: '#262624', color: '#F4F4F0', border: '1px solid #3A3A36' }}>
+                  {user.phone}
                 </span>
                 <span className="profile-header__since">Joined {user.joinedDate}</span>
               </div>
@@ -486,7 +489,7 @@ export default function AccountModal({ isOpen, onClose }) {
                 ) : (
                   <form className="profile-address-form" onSubmit={handleSaveAddress}>
                     <h4 className="form-heading">Bangalore Delivery Address</h4>
-                    <p className="form-sub">Save your Bangalore delivery address for 1-click checkout.</p>
+                    <p className="form-sub">Save your Bangalore delivery address for fast checkout.</p>
 
                     <div className="profile-form__field">
                       <label>Street Address / Flat / Building *</label>
@@ -650,11 +653,6 @@ export default function AccountModal({ isOpen, onClose }) {
             >
               {loading ? 'SENDING OTP...' : 'GET VERIFICATION CODE →'}
             </button>
-
-            <div className="account-modal__perks" style={{ marginTop: '20px' }}>
-              <span>🔒 100% Secure Firebase OTP</span>
-              <span>⚡ Fast Bangalore 1-Click Checkout</span>
-            </div>
           </form>
         ) : (
           /* STEP 2: OTP Verification */
@@ -667,7 +665,7 @@ export default function AccountModal({ isOpen, onClose }) {
                 Code sent to <strong>+91 {phone}</strong> &nbsp;
                 <button
                   type="button"
-                  onClick={() => { setAuthStep('phone'); setOtp(''); setErrorMsg(''); }}
+                  onClick={() => { setAuthStep('phone'); setOtp(''); setErrorMsg(''); setInfoNotice(''); }}
                   style={{
                     background: 'none',
                     border: 'none',
@@ -681,6 +679,21 @@ export default function AccountModal({ isOpen, onClose }) {
                 </button>
               </p>
             </div>
+
+            {infoNotice && (
+              <div style={{
+                backgroundColor: 'rgba(212, 175, 55, 0.12)',
+                border: '1px solid rgba(212, 175, 55, 0.35)',
+                borderRadius: '6px',
+                padding: '10px 14px',
+                color: '#D4AF37',
+                fontSize: '12px',
+                marginBottom: '16px',
+                lineHeight: 1.4,
+              }}>
+                ℹ️ {infoNotice}
+              </div>
+            )}
 
             {errorMsg && (
               <div style={{

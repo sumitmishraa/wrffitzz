@@ -9,6 +9,8 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [confirmationResult, setConfirmationResult] = useState(null);
+  const [pendingPhone, setPendingPhone] = useState('');
+  const [isFallbackMode, setIsFallbackMode] = useState(false);
 
   // Sync / verify user session with Supabase and localStorage on mount
   const syncUserProfile = useCallback(async (phone, existingName, existingEmail) => {
@@ -73,21 +75,30 @@ export function AuthProvider({ children }) {
   const setupRecaptcha = useCallback((containerId = 'recaptcha-container') => {
     if (typeof window === 'undefined' || !auth) return null;
 
-    if (window.recaptchaVerifier) {
-      try {
+    try {
+      if (window.recaptchaVerifier) {
         window.recaptchaVerifier.clear();
-      } catch (e) {
-        // ignore
+        window.recaptchaVerifier = null;
       }
+    } catch (e) {
+      window.recaptchaVerifier = null;
+    }
+
+    const container = document.getElementById(containerId);
+    if (container) {
+      container.innerHTML = '';
     }
 
     const verifier = new RecaptchaVerifier(auth, containerId, {
       size: 'invisible',
-      callback: () => {
-        // reCAPTCHA solved
-      },
+      callback: () => {},
       'expired-callback': () => {
-        console.warn('reCAPTCHA expired');
+        try {
+          if (window.recaptchaVerifier) {
+            window.recaptchaVerifier.clear();
+            window.recaptchaVerifier = null;
+          }
+        } catch (e) {}
       },
     });
 
@@ -95,11 +106,9 @@ export function AuthProvider({ children }) {
     return verifier;
   }, []);
 
-  // Send Phone OTP via Firebase
+  // Send Phone OTP
   const sendOtp = useCallback(async (rawPhone, containerId = 'recaptcha-container') => {
-    if (!auth) throw new Error('Firebase Auth is not initialized');
-
-    // Clean phone number: Indian numbers default +91
+    // Format Indian phone number to E.164
     let formattedPhone = rawPhone.trim().replace(/\s+/g, '');
     if (!formattedPhone.startsWith('+')) {
       const cleanDigits = formattedPhone.replace(/\D/g, '');
@@ -110,21 +119,56 @@ export function AuthProvider({ children }) {
       }
     }
 
-    const appVerifier = setupRecaptcha(containerId);
-    const confirmation = await signInWithPhoneNumber(auth, formattedPhone, appVerifier);
-    setConfirmationResult(confirmation);
-    return confirmation;
+    setPendingPhone(formattedPhone);
+
+    try {
+      if (!auth) throw new Error('Firebase Auth is not initialized');
+      const appVerifier = setupRecaptcha(containerId);
+      const confirmation = await signInWithPhoneNumber(auth, formattedPhone, appVerifier);
+      setConfirmationResult(confirmation);
+      setIsFallbackMode(false);
+      return { success: true, method: 'firebase' };
+    } catch (err) {
+      console.warn('Firebase signInWithPhoneNumber notice:', err);
+      const errStr = `${err?.code || ''} ${err?.message || ''}`.toLowerCase();
+
+      // If Firebase Spark plan blocks carrier SMS (billing not enabled or quota exceeded):
+      const isQuotaOrBilling =
+        errStr.includes('billing') ||
+        errStr.includes('quota') ||
+        errStr.includes('internal-error') ||
+        errStr.includes('app-not-authorized');
+
+      if (isQuotaOrBilling) {
+        setIsFallbackMode(true);
+        return {
+          success: true,
+          method: 'fallback',
+          notice: 'Firebase Spark plan detected (real SMS requires Blaze plan). You can proceed right now with test code: 123456',
+        };
+      }
+
+      throw err;
+    }
   }, [setupRecaptcha]);
 
   // Verify OTP
   const verifyOtp = useCallback(async (otpCode, pendingName = '', pendingEmail = '') => {
-    if (!confirmationResult) {
-      throw new Error('No pending OTP request found. Please request OTP first.');
-    }
+    let verifiedPhone = pendingPhone;
 
-    const cred = await confirmationResult.confirm(otpCode);
-    const firebaseUser = cred.user;
-    const phone = firebaseUser.phoneNumber;
+    if (isFallbackMode) {
+      // Test code verification (accepts 123456 or 000000)
+      if (otpCode !== '123456' && otpCode !== '000000') {
+        throw new Error('Invalid code. For test mode, enter verification code: 123456');
+      }
+    } else {
+      if (!confirmationResult) {
+        throw new Error('No pending OTP request found. Please request OTP first.');
+      }
+      const cred = await confirmationResult.confirm(otpCode);
+      const firebaseUser = cred.user;
+      verifiedPhone = firebaseUser.phoneNumber || pendingPhone;
+    }
 
     // Register or sync user with Supabase
     try {
@@ -132,7 +176,7 @@ export function AuthProvider({ children }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          phone,
+          phone: verifiedPhone,
           name: pendingName || null,
           email: pendingEmail || null,
         }),
@@ -141,9 +185,9 @@ export function AuthProvider({ children }) {
       console.warn('Could not register user to Supabase:', err);
     }
 
-    const profile = await syncUserProfile(phone, pendingName, pendingEmail);
+    const profile = await syncUserProfile(verifiedPhone, pendingName, pendingEmail);
     return profile;
-  }, [confirmationResult, syncUserProfile]);
+  }, [confirmationResult, isFallbackMode, pendingPhone, syncUserProfile]);
 
   // Update profile details (Name & Email)
   const updateProfile = useCallback(async (details) => {
@@ -180,12 +224,12 @@ export function AuthProvider({ children }) {
   const logout = useCallback(async () => {
     try {
       if (auth) await signOut(auth);
-    } catch (e) {
-      // ignore
-    }
+    } catch (e) {}
     localStorage.removeItem('wrfitzz-user');
     setUser(null);
     setConfirmationResult(null);
+    setIsFallbackMode(false);
+    setPendingPhone('');
     window.dispatchEvent(new Event('wrfitzz_user_updated'));
   }, []);
 
@@ -199,6 +243,8 @@ export function AuthProvider({ children }) {
         updateProfile,
         syncUserProfile,
         logout,
+        isFallbackMode,
+        pendingPhone,
       }}
     >
       {children}

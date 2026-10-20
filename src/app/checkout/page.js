@@ -243,7 +243,7 @@ export default function CheckoutPage() {
                     marginBottom: '16px',
                   }}>
                     <span>✓</span>
-                    <span>Logged in with Mobile OTP: <strong>{user.phone}</strong> (Phone Verified)</span>
+                    <span>Logged in as: <strong>{user.phone}</strong></span>
                   </div>
                 ) : (
                   <div style={{
