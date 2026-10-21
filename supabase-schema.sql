@@ -43,17 +43,21 @@ CREATE TABLE IF NOT EXISTS products (
 );
 
 -- ============================================
--- USERS TABLE (Phone Auth & Admin Privileges)
+-- USERS TABLE (Email / Google Auth & Admin Privileges)
 -- ============================================
 CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  phone TEXT UNIQUE NOT NULL,
+  email TEXT UNIQUE,
+  phone TEXT UNIQUE,
   name TEXT,
-  email TEXT,
   is_admin BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Migration for existing users table:
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT UNIQUE;
+ALTER TABLE users ALTER COLUMN phone DROP NOT NULL;
 
 -- ============================================
 -- ORDERS TABLE
