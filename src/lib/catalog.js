@@ -1,5 +1,9 @@
 import 'server-only';
-import { getStoreProducts, getStoreCategories } from './data-store';
+import { getStoreProducts, getStoreCategories, getStoreSettings } from './data-store';
+
+export async function getSettings() {
+  return getStoreSettings();
+}
 
 // Server-side reads for the storefront pages. Products switched off in the
 // admin (is_visible = false) never reach these.

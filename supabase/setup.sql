@@ -76,9 +76,17 @@ create index if not exists shop_orders_created_idx on public.shop_orders (create
 create index if not exists shop_orders_status_idx on public.shop_orders (status);
 create index if not exists shop_products_visible_idx on public.shop_products (is_visible);
 
+-- Store contact details (admin > Store details): one row, id 'store'.
+create table if not exists public.shop_settings (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
 alter table public.shop_categories enable row level security;
 alter table public.shop_products enable row level security;
 alter table public.shop_orders enable row level security;
+alter table public.shop_settings enable row level security;
 
 -- Product photos: anyone can view, only the server can upload (5 MB, images only).
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
@@ -123,3 +131,9 @@ insert into public.shop_products (id, slug, name, description, price, compare_pr
   ('prod-bloom-dress', 'bloom-embroidered-summer-dress', 'Bloom Embroidered Summer Dress', 'An enchanting lilac-pink summer dress adorned with delicate floral embroidery along the hemline. Features wide shoulder straps, a fitted bodice, and a graceful A-line drape.', 3999, 5499, 'cat-dresses', 'women', '["/images/products/pink-floral-dress.jpg"]'::jsonb, '["XS","S","M","L","XL"]'::jsonb, '[{"name":"Lilac Pink","hex":"#ECC5C0","image":"/images/products/pink-floral-dress.jpg"}]'::jsonb, true, true, true, true, true, 4.9, 87, 'Premium Cotton Blend with Hand-Embroidered Hem', 'Hand wash cold recommended. Iron on low heat.', 7),
   ('prod-paisley-squares', 'artisan-paisley-pocket-square-set', 'Artisan Paisley Pocket Square Set', 'A curated collection of three handcrafted paisley pocket squares in jewel tones: emerald green, teal blue, and navy. Each piece features intricate motifs printed on soft, rolled-edge woven cotton.', 1299, 1899, 'cat-accessories', 'unisex', '["/images/products/paisley-squares.jpg"]'::jsonb, '["One Size"]'::jsonb, '[{"name":"Jewel Paisley","hex":"#B55941","image":"/images/products/paisley-squares.jpg"}]'::jsonb, true, true, false, true, false, 4.9, 43, '100% Premium Printed Cotton', 'Hand wash cold. Iron on medium heat.', 8)
 on conflict (id) do nothing;
+
+insert into public.shop_settings (id, data) values
+  ('store', '{"whatsapp_number":"919845000000","contact_phone":"919845000000","contact_email":"care@wrfitzz.in","store_address":"Indiranagar, Bangalore, Karnataka","store_hours":"Monday to Saturday, 10am to 8pm","instagram_url":""}'::jsonb)
+on conflict (id) do nothing;
+
+-- Done. Refresh /admin: orders, products and store details now save here.

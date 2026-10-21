@@ -146,6 +146,11 @@ body {
 }
 .pie .qs-pie-nav a:hover { text-decoration: underline; text-underline-offset: 4px; }
 
+/* Store contact line under the copyright (edited in admin > Store details) */
+.pie .pie__base { flex-direction: column; gap: 6px; }
+.qs-pie-contacto { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 0 18px; font-style: normal; }
+.pie .qs-pie-contacto a { display: inline-flex; align-items: center; min-height: 32px; }
+
 /* Magnetic header buttons (MotionEffects sets --mx/--my) and the reading progress bar. */
 .cab .cab__boton { translate: var(--mx, 0px) var(--my, 0px); transition: background .2s, translate .6s var(--suave); }
 .progreso { z-index: 130; height: 2px; background: var(--qs-sand); }

@@ -181,6 +181,9 @@
   background: var(--qs-surface);
   border-top: 1px solid var(--qs-line);
 }
+.adm-ajustes { display: grid; gap: 20px; max-width: 720px; padding: 22px; background: var(--qs-surface); border: 1px solid var(--qs-line); }
+.adm-ajustes__pie { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding-top: 16px; border-top: 1px solid var(--qs-line); }
+.adm-ajustes__pie p { margin: 0; }
 .adm-historia { display: grid; gap: 10px; margin: 0; padding: 0 0 0 16px; list-style: none; border-left: 1px solid var(--qs-line); }
 .adm-historia li { display: grid; gap: 2px; position: relative; font-size: .85rem; }
 .adm-historia li::before {

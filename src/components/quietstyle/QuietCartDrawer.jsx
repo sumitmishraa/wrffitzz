@@ -6,8 +6,6 @@ import useDialog from '@/hooks/useDialog';
 import { computeTotals, formatINR, FREE_DELIVERY_OVER } from '@/lib/pricing';
 import { BagLines, BagTotals } from './BagSummary';
 
-const WHATSAPP_NUMBER = '919845000000';
-
 function whatsappText(items, subtotal) {
   const online = computeTotals(subtotal, { prepaid: true });
   const cod = computeTotals(subtotal, { prepaid: false });
@@ -26,7 +24,7 @@ function whatsappText(items, subtotal) {
   ].join('\n');
 }
 
-export default function QuietCartDrawer() {
+export default function QuietCartDrawer({ whatsappNumber }) {
   const { items, isOpen, setIsOpen, removeItem, updateQuantity, totalPrice, totalItems } = useCart();
   const close = useCallback(() => setIsOpen(false), [setIsOpen]);
   const panelRef = useDialog(isOpen, close);
@@ -88,14 +86,16 @@ export default function QuietCartDrawer() {
               <Link href="/checkout" className="boton boton--lleno boton--ancho" onClick={close}>
                 Checkout
               </Link>
-              <a
-                href={`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(whatsappText(items, totalPrice))}`}
-                target="_blank"
-                rel="noreferrer"
-                className="boton boton--ancho"
-              >
-                Order on WhatsApp<span className="qs-sr"> (opens in a new tab)</span>
-              </a>
+              {whatsappNumber && (
+                <a
+                  href={`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(whatsappText(items, totalPrice))}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="boton boton--ancho"
+                >
+                  Order on WhatsApp<span className="qs-sr"> (opens in a new tab)</span>
+                </a>
+              )}
               <Link href="/cart" className="boton boton--texto" onClick={close}>View full bag</Link>
             </div>
           </>

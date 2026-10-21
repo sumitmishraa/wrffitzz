@@ -1,11 +1,15 @@
-import { getCategories } from '@/lib/catalog';
+import { connection } from 'next/server';
+import { getCategories, getSettings } from '@/lib/catalog';
 import QuietHeader from '@/components/quietstyle/QuietHeader';
 import QuietFooter from '@/components/quietstyle/QuietFooter';
 import QuietCartDrawer from '@/components/quietstyle/QuietCartDrawer';
 import MotionEffects from '@/components/quietstyle/MotionEffects';
 
 export default async function StoreLayout({ children }) {
-  const categories = (await getCategories()).filter((c) => c.slug !== 'best-seller');
+  // Render per request so admin edits (store details, categories) show without a redeploy
+  await connection();
+  const [allCategories, settings] = await Promise.all([getCategories(), getSettings()]);
+  const categories = allCategories.filter((c) => c.slug !== 'best-seller');
 
   return (
     <>
@@ -15,8 +19,8 @@ export default async function StoreLayout({ children }) {
       <main id="main" tabIndex={-1}>
         {children}
       </main>
-      <QuietFooter categories={categories} />
-      <QuietCartDrawer />
+      <QuietFooter categories={categories} settings={settings} />
+      <QuietCartDrawer whatsappNumber={settings.whatsapp_number} />
     </>
   );
 }

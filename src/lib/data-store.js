@@ -53,8 +53,17 @@ function writeJson(file, data) {
   }
 }
 
+export const SETUP_MESSAGE =
+  'The shop tables are not set up in Supabase yet. Open Supabase > SQL Editor, paste supabase/setup.sql and press Run, then refresh.';
+
+// PostgREST reports a missing table as PGRST205 ("Could not find the table ...").
+function isMissingTable(error) {
+  return error?.code === 'PGRST205' || /could not find the table/i.test(error?.message || '');
+}
+
 function dbError(error, action) {
   console.error(`Supabase ${action} failed:`, error.message);
+  if (isMissingTable(error)) return new StoreError(SETUP_MESSAGE, 503);
   return new StoreError(`Database error while trying to ${action}: ${error.message}`, 500);
 }
 
@@ -277,6 +286,7 @@ export async function createStoreOrder(input) {
 }
 
 const ORDER_EDITABLE = ['status', 'payment_status', 'tracking_number', 'courier', 'estimated_delivery', 'admin_notes'];
+const ORDER_CONTACT = ['customer_name', 'customer_email', 'customer_phone', 'shipping_address', 'pincode'];
 
 export async function updateStoreOrder(id, patch, note) {
   const orders = await getStoreOrders();
@@ -291,12 +301,37 @@ export async function updateStoreOrder(id, patch, note) {
   if (changes.status && !ORDER_STATUSES.includes(changes.status)) throw new StoreError('Unknown order status.');
   if (changes.payment_status && !PAYMENT_STATUSES.includes(changes.payment_status)) throw new StoreError('Unknown payment status.');
 
+  // Customer contact and delivery address
+  for (const key of ORDER_CONTACT) {
+    if (patch[key] === undefined) continue;
+    changes[key] = str(patch[key], key === 'shipping_address' ? 400 : 160);
+  }
+  if (changes.customer_name !== undefined && !changes.customer_name) throw new StoreError('Customer name cannot be empty.');
+  if (changes.customer_phone !== undefined) {
+    changes.customer_phone = changes.customer_phone.replace(/\D/g, '').slice(-10);
+    if (changes.customer_phone.length !== 10) throw new StoreError('Enter a 10-digit mobile number.');
+  }
+  if (changes.customer_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(changes.customer_email)) {
+    throw new StoreError('Enter a valid email address, or leave it empty.');
+  }
+  if (changes.shipping_address !== undefined && !changes.shipping_address) throw new StoreError('Shipping address cannot be empty.');
+  if (changes.pincode !== undefined) {
+    changes.pincode = changes.pincode.replace(/\D/g, '');
+    if (changes.pincode.length !== 6) throw new StoreError('Enter a 6-digit PIN code.');
+  }
+  const contactChanged = ORDER_CONTACT.some(
+    (key) => changes[key] !== undefined && String(changes[key]) !== String(current[key] ?? '')
+  );
+
   const now = new Date().toISOString();
   const history = [...current.history];
   if (changes.status && changes.status !== current.status) {
     history.push({ status: changes.status, at: now, note: str(note, 300) || undefined });
   } else if (note) {
     history.push({ status: current.status, at: now, note: str(note, 300) });
+  }
+  if (contactChanged) {
+    history.push({ status: changes.status || current.status, at: now, note: 'Customer details updated' });
   }
   changes.history = history;
   changes.updated_at = now;
@@ -311,4 +346,82 @@ export async function updateStoreOrder(id, patch, note) {
   all[index] = { ...all[index], ...changes };
   writeJson(ORDERS_FILE, all);
   return normaliseOrder(all[index]);
+}
+
+// ---------- store settings (contact details shown on the site) ----------
+const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
+
+export const DEFAULT_SETTINGS = {
+  whatsapp_number: '919845000000',
+  contact_phone: '919845000000',
+  contact_email: 'care@wrfitzz.in',
+  store_address: 'Indiranagar, Bangalore, Karnataka',
+  store_hours: 'Monday to Saturday, 10am to 8pm',
+  instagram_url: '',
+};
+
+const indianNumber = (v, label) => {
+  const digits = str(v, 20).replace(/\D/g, '');
+  if (!digits) return '';
+  const ten = digits.slice(-10);
+  if (ten.length !== 10) throw new StoreError(`${label} must be a 10-digit Indian mobile number.`);
+  return `91${ten}`;
+};
+
+const SETTINGS_FIELDS = {
+  whatsapp_number: (v) => indianNumber(v, 'WhatsApp number'),
+  contact_phone: (v) => indianNumber(v, 'Phone number'),
+  contact_email: (v) => {
+    const s = str(v, 160);
+    if (s && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)) throw new StoreError('Enter a valid email address.');
+    return s;
+  },
+  store_address: (v) => str(v, 300),
+  store_hours: (v) => str(v, 120),
+  instagram_url: (v) => {
+    const s = str(v, 300);
+    if (s && !/^https:\/\//.test(s)) throw new StoreError('Instagram link must start with https://');
+    return s;
+  },
+};
+
+function readSettingsFile() {
+  try {
+    if (!fs.existsSync(SETTINGS_FILE)) return {};
+    const parsed = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export async function getStoreSettings() {
+  if (isDatabaseConfigured()) {
+    const { data, error } = await supabaseAdmin.from('shop_settings').select('data').eq('id', 'store').maybeSingle();
+    if (!error) return { ...DEFAULT_SETTINGS, ...(data?.data || {}) };
+    console.error('Supabase settings read failed, using defaults:', error.message);
+  }
+  return { ...DEFAULT_SETTINGS, ...readSettingsFile() };
+}
+
+export async function updateStoreSettings(patch) {
+  const current = await getStoreSettings();
+  const next = { ...current };
+  for (const [key, clean] of Object.entries(SETTINGS_FIELDS)) {
+    if (patch[key] !== undefined) next[key] = clean(patch[key]);
+  }
+  if (isDatabaseConfigured()) {
+    const { error } = await supabaseAdmin
+      .from('shop_settings')
+      .upsert({ id: 'store', data: next, updated_at: new Date().toISOString() });
+    if (error) throw dbError(error, 'save the store details');
+    return next;
+  }
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  try {
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2), 'utf-8');
+  } catch {
+    throw new StoreError('Changes cannot be saved: the database is not connected. Add SUPABASE_SERVICE_ROLE_KEY.', 503);
+  }
+  return next;
 }

@@ -15,6 +15,11 @@ function OrderDrawer({ order, call, onClose, onSaved }) {
   const close = useCallback(() => onClose(), [onClose]);
   const panelRef = useDialog(Boolean(order), close);
   const [form, setForm] = useState(() => ({
+    customer_name: order.customer_name || '',
+    customer_phone: String(order.customer_phone || '').replace(/\D/g, '').slice(-10),
+    customer_email: order.customer_email || '',
+    shipping_address: order.shipping_address || '',
+    pincode: order.pincode || '',
     status: order.status,
     payment_status: order.payment_status || (order.payment_method === 'COD' ? 'PENDING_COD' : 'PAID'),
     courier: order.courier || '',
@@ -62,13 +67,29 @@ function OrderDrawer({ order, call, onClose, onSaved }) {
           </div>
 
           <section className="adm-bloque" aria-labelledby="ord-cliente">
-            <h3 id="ord-cliente" className="qs-caja__titulo">Customer</h3>
-            <dl className="qs-datos">
-              <div><dt>Name</dt><dd>{order.customer_name}</dd></div>
-              <div><dt>Phone</dt><dd>{phone ? `+91 ${phone}` : '—'}</dd></div>
-              <div><dt>Email</dt><dd>{order.customer_email || '—'}</dd></div>
-              <div><dt>Address</dt><dd>{order.shipping_address}{order.pincode && !String(order.shipping_address).includes(order.pincode) ? `, ${order.pincode}` : ''}</dd></div>
-            </dl>
+            <h3 id="ord-cliente" className="qs-caja__titulo">Customer and delivery address</h3>
+            <div className="qs-grid">
+              <div className="qs-field">
+                <label className="qs-label" htmlFor="ord-name">Name</label>
+                <input id="ord-name" className="qs-input" value={form.customer_name} onChange={set('customer_name')} autoComplete="off" required />
+              </div>
+              <div className="qs-field">
+                <label className="qs-label" htmlFor="ord-phone">Mobile <i>· 10 digits</i></label>
+                <input id="ord-phone" className="qs-input" type="tel" inputMode="numeric" value={form.customer_phone} onChange={set('customer_phone')} autoComplete="off" required />
+              </div>
+              <div className="qs-field qs-field--full">
+                <label className="qs-label" htmlFor="ord-email">Email <i>· optional</i></label>
+                <input id="ord-email" className="qs-input" type="email" value={form.customer_email} onChange={set('customer_email')} autoComplete="off" />
+              </div>
+              <div className="qs-field qs-field--full">
+                <label className="qs-label" htmlFor="ord-addr">Delivery address</label>
+                <textarea id="ord-addr" className="qs-input adm-textarea" rows={3} value={form.shipping_address} onChange={set('shipping_address')} required />
+              </div>
+              <div className="qs-field">
+                <label className="qs-label" htmlFor="ord-pin">PIN code</label>
+                <input id="ord-pin" className="qs-input" inputMode="numeric" maxLength={6} value={form.pincode} onChange={set('pincode')} required />
+              </div>
+            </div>
             <div className="qs-botones">
               {phone && <a className="boton" href={`tel:+91${phone}`}>Call</a>}
               {phone && (

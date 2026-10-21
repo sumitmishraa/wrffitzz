@@ -5,11 +5,13 @@ import { adminRequest } from './adminApi';
 import OrdersPanel from './OrdersPanel';
 import ProductsPanel from './ProductsPanel';
 import OverviewPanel from './OverviewPanel';
+import SettingsPanel from './SettingsPanel';
 
 const TABS = [
   ['orders', 'Orders'],
   ['products', 'Products'],
   ['overview', 'Overview'],
+  ['settings', 'Store details'],
 ];
 
 function AdminLogin({ setupProblem, onSignedIn }) {
@@ -205,6 +207,7 @@ export default function AdminApp() {
           />
         )}
         {tab === 'overview' && <OverviewPanel orders={orders} products={products} onOpenTab={setTab} />}
+        {tab === 'settings' && <SettingsPanel call={call} />}
       </main>
     </div>
   );

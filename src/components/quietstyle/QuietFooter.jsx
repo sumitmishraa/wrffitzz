@@ -1,9 +1,18 @@
 import Link from 'next/link';
 import { FREE_DELIVERY_OVER, PREPAID_DISCOUNT, formatINR } from '@/lib/pricing';
 
-const WHATSAPP = 'https://wa.me/919845000000?text=Hi%20wrfitzz%20team%2C%20I%20have%20a%20question%20about%20your%20pieces.';
+const WHATSAPP_TEXT = encodeURIComponent('Hi wrfitzz team, I have a question about your pieces.');
 
-export default function QuietFooter({ categories = [] }) {
+// Numbers are stored as 91 + 10 digits; show them as +91 98450 00000
+function displayPhone(number) {
+  const digits = String(number || '').replace(/\D/g, '');
+  if (digits.length !== 12) return digits ? `+${digits}` : '';
+  return `+${digits.slice(0, 2)} ${digits.slice(2, 7)} ${digits.slice(7)}`;
+}
+
+export default function QuietFooter({ categories = [], settings = {} }) {
+  const { whatsapp_number, contact_phone, contact_email, store_address, store_hours, instagram_url } = settings;
+
   return (
     <footer className="pie" id="pie">
       <ul className="pie__rasgos">
@@ -33,11 +42,20 @@ export default function QuietFooter({ categories = [] }) {
           ))}
           <li><Link href="/wishlist">Wishlist</Link></li>
           <li><Link href="/cart">Bag</Link></li>
-          <li>
-            <a href={WHATSAPP} target="_blank" rel="noreferrer">
-              WhatsApp us<span className="qs-sr"> (opens in a new tab)</span>
-            </a>
-          </li>
+          {whatsapp_number && (
+            <li>
+              <a href={`https://wa.me/${whatsapp_number}?text=${WHATSAPP_TEXT}`} target="_blank" rel="noreferrer">
+                WhatsApp us<span className="qs-sr"> (opens in a new tab)</span>
+              </a>
+            </li>
+          )}
+          {instagram_url && (
+            <li>
+              <a href={instagram_url} target="_blank" rel="noreferrer">
+                Instagram<span className="qs-sr"> (opens in a new tab)</span>
+              </a>
+            </li>
+          )}
         </ul>
       </nav>
 
@@ -49,6 +67,12 @@ export default function QuietFooter({ categories = [] }) {
         <p>
           <b>wrfitzz® Bangalore Atelier.</b> Made to stay. All rights reserved.
         </p>
+        <address className="qs-pie-contacto">
+          {store_address && <span>{store_address}</span>}
+          {store_hours && <span>{store_hours}</span>}
+          {contact_phone && <a href={`tel:+${contact_phone}`}>{displayPhone(contact_phone)}</a>}
+          {contact_email && <a href={`mailto:${contact_email}`}>{contact_email}</a>}
+        </address>
       </div>
     </footer>
   );
