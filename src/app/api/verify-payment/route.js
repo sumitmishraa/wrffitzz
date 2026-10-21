@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
+import Razorpay from 'razorpay';
 import { createStoreOrder } from '@/lib/data-store';
+import { priceCart } from '@/lib/order-pricing';
+import { computeTotals } from '@/lib/pricing';
 
 export async function POST(request) {
   try {
@@ -47,15 +50,50 @@ export async function POST(request) {
     // Payment is authentic & verified! Create / update the order
     let savedOrder = null;
     if (order_data) {
-      const orderToSave = {
-        ...order_data,
-        status: 'confirmed',
-        payment_method: 'RAZORPAY',
-        payment_status: 'PAID',
-        razorpay_order_id,
-        razorpay_payment_id,
-      };
-      savedOrder = createStoreOrder(orderToSave);
+      // Record what Razorpay actually charged, not the total the browser sent.
+      let chargedTotal = order_data.total_amount;
+      try {
+        const razorpay = new Razorpay({ key_id: process.env.RAZORPAY_KEY_ID, key_secret });
+        const rzpOrder = await razorpay.orders.fetch(razorpay_order_id);
+        if (rzpOrder?.amount) chargedTotal = rzpOrder.amount / 100;
+      } catch (fetchErr) {
+        console.warn('Could not fetch Razorpay order amount; keeping submitted total:', fetchErr?.message);
+      }
+      // Order lines are rebuilt from the product store; the payment is already
+      // verified, so a pricing problem must not lose the order record.
+      let items = order_data.items;
+      let subtotal = order_data.subtotal;
+      try {
+        const priced = await priceCart(order_data.items);
+        items = priced.lines;
+        subtotal = priced.subtotal;
+      } catch (priceErr) {
+        console.warn('Could not reprice paid order items; keeping submitted lines:', priceErr?.message);
+      }
+      const totals = computeTotals(subtotal, { prepaid: true });
+      try {
+        savedOrder = await createStoreOrder({
+          customer_name: order_data.customer_name,
+          customer_email: order_data.customer_email,
+          customer_phone: order_data.customer_phone,
+          shipping_address: order_data.shipping_address,
+          city: order_data.city,
+          state: order_data.state,
+          pincode: order_data.pincode,
+          items,
+          subtotal: totals.subtotal,
+          shipping: totals.delivery,
+          discount: totals.discount,
+          total_amount: chargedTotal,
+          payment_method: 'RAZORPAY',
+          payment_status: 'PAID',
+          razorpay_order_id,
+          razorpay_payment_id,
+        });
+      } catch (saveErr) {
+        // The customer has paid: report success and log loudly so the order can be recovered.
+        console.error('PAID ORDER NOT SAVED', razorpay_order_id, razorpay_payment_id, saveErr?.message);
+      }
     }
 
     return NextResponse.json({

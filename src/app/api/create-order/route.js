@@ -1,13 +1,24 @@
 import { NextResponse } from 'next/server';
 import Razorpay from 'razorpay';
+import { priceCart } from '@/lib/order-pricing';
+import { computeTotals } from '@/lib/pricing';
 
 export async function POST(request) {
   try {
     const body = await request.json();
-    const { amount, currency = 'INR', receipt, notes } = body;
+    const { items, currency = 'INR', receipt, notes } = body || {};
 
-    // Validate amount: minimum 100 paise (₹1.00)
-    if (!amount || typeof amount !== 'number' || amount < 100) {
+    // Prices come from the product store, never from the client.
+    let subtotal;
+    try {
+      ({ subtotal } = await priceCart(items));
+    } catch (err) {
+      return NextResponse.json({ error: err.message }, { status: err.status || 400 });
+    }
+    const totals = computeTotals(subtotal, { prepaid: true });
+    const amount = totals.total * 100;
+
+    if (amount < 100) {
       return NextResponse.json(
         { error: 'Invalid amount. Minimum amount is 100 paise (₹1.00).' },
         { status: 400 }
@@ -29,11 +40,21 @@ export async function POST(request) {
       key_secret,
     });
 
+    const safeNotes = {};
+    if (notes && typeof notes === 'object') {
+      for (const [k, v] of Object.entries(notes).slice(0, 10)) safeNotes[k] = String(v).slice(0, 200);
+    }
+
     const options = {
-      amount: Math.round(amount), // ensure integer paise
+      amount,
       currency,
       receipt: receipt || `rcpt_${Date.now().toString().slice(-8)}`,
-      notes: notes || {},
+      notes: {
+        ...safeNotes,
+        subtotal: String(totals.subtotal),
+        delivery: String(totals.delivery),
+        prepaid_discount: String(totals.discount),
+      },
     };
 
     const order = await razorpay.orders.create(options);
@@ -43,6 +64,7 @@ export async function POST(request) {
       order_id: order.id,
       amount: order.amount,
       currency: order.currency,
+      totals,
     });
   } catch (err) {
     console.error('Error creating Razorpay order:', err);

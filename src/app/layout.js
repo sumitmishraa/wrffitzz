@@ -2,29 +2,39 @@ import './globals.css';
 import { AuthProvider } from '@/context/AuthContext';
 import { CartProvider } from '@/context/CartContext';
 import { WishlistProvider } from '@/context/WishlistContext';
-import Header from '@/components/Header';
-import Footer from '@/components/Footer';
-import CartDrawer from '@/components/CartDrawer';
-import ScrollToTop from '@/components/ScrollToTop';
+
+export const viewport = {
+  themeColor: '#CCCED3',
+  width: 'device-width',
+  initialScale: 1,
+};
 
 export const metadata = {
-  title: 'wrfitzz - Modern Streetwear & Premium Apparel',
-  description: 'Shop contemporary streetwear, snap sweatpants, parachute bottoms, tracksuits and artisanal shirts at wrfitzz.',
-  keywords: 'wrfitzz, streetwear, trackpants, sweatpants, snap button, parachute pants, oversized t-shirts, fashion',
+  title: 'wrfitzz® · Made to stay · Bangalore Atelier',
+  description: 'wrfitzz. Everyday essentials made in small runs in Bangalore Atelier. Pick your size and colour, build your order and send it by WhatsApp.',
 };
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
+    <html lang="en" className="sin-portal listo js">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@1,400;1,500;1,600&family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&family=Unbounded:wght@500;700;800&family=Figtree:wght@400;500;600;700&display=swap"
+          rel="stylesheet"
+        />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `document.documentElement.classList.add('sin-portal','listo','js');`,
+          }}
+        />
+      </head>
       <body>
         <AuthProvider>
           <CartProvider>
             <WishlistProvider>
-              <Header />
-              <CartDrawer />
-              <main>{children}</main>
-              <Footer />
-              <ScrollToTop />
+              {children}
             </WishlistProvider>
           </CartProvider>
         </AuthProvider>

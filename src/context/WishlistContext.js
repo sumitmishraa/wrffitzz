@@ -5,17 +5,21 @@ const WishlistContext = createContext();
 
 export function WishlistProvider({ children }) {
   const [items, setItems] = useState([]);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     try {
       const saved = localStorage.getItem('wrfitzz-wishlist');
       if (saved) setItems(JSON.parse(saved));
     } catch (e) { /* ignore */ }
+    setLoaded(true);
   }, []);
 
+  // Persist only after the saved list has been read (see CartContext).
   useEffect(() => {
+    if (!loaded) return;
     try { localStorage.setItem('wrfitzz-wishlist', JSON.stringify(items)); } catch (e) { /* ignore */ }
-  }, [items]);
+  }, [items, loaded]);
 
   const addItem = useCallback((product) => {
     setItems(prev => {

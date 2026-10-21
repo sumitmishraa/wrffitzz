@@ -63,26 +63,42 @@ npm install
 ```
 
 ### 2. Environment Configuration
-Create a `.env.local` file in the root directory:
+Create a `.env.local` file in the root directory (see `.env.example` for the full list):
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
-ADMIN_SECRET_KEY=wrfitzz@2026
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key   # server only, never NEXT_PUBLIC_
+ADMIN_SECRET_KEY=a-long-private-password          # 12+ characters
 ```
 
-*(Note: The platform is built with full fallback resilience and will function cleanly even without active Supabase credentials).*
+Without `SUPABASE_SERVICE_ROLE_KEY` the store reads and writes the JSON files in `src/data`. That works on your
+computer but not on Vercel, where the filesystem is read-only, so the admin cannot save there.
 
-### 3. Development Server
+### 3. Database and image storage (one time)
+1. In Supabase, open **SQL Editor → New query**, paste `supabase/setup.sql` and run it. It creates the
+   `shop_products`, `shop_orders` and `shop_categories` tables (row level security on, no public access), a public
+   `product-images` bucket for product photos, seeds the current catalogue, and removes the old policies that
+   exposed customer orders.
+2. Copy the **service_role** key from **Project Settings → API**.
+3. In Vercel, **Project → Settings → Environment Variables**, add `SUPABASE_SERVICE_ROLE_KEY` and a strong
+   `ADMIN_SECRET_KEY` for Production, then redeploy.
+
+### 4. Development Server
 ```bash
 npm run dev
 ```
 Open [http://localhost:3000](http://localhost:3000) to view the storefront.
 
-### 4. Accessing the Admin Operations Suite
-Navigate directly to [http://localhost:3000/admin](http://localhost:3000/admin) and authenticate using the Owner Key:
-```
-Default Key: wrfitzz@2026
-```
+### 5. Admin
+Open [http://localhost:3000/admin](http://localhost:3000/admin) and sign in with `ADMIN_SECRET_KEY`.
+In production the admin stays locked until `ADMIN_SECRET_KEY` is set to a private password of at least 12 characters.
+
+The admin covers:
+- **Orders:** every order with search and filters; status, payment status, courier, tracking number, expected
+  delivery, internal notes and a history timeline; call, WhatsApp and email the customer.
+- **Products:** change prices inline, switch products off or mark them sold out, add and edit products with
+  multiple photos (upload, reorder, set cover), sizes, colours, category and tags, and delete.
+- **Overview:** orders today, open orders, revenue, cash on delivery still to collect, and catalogue counts.
 
 ---
 

@@ -6,6 +6,7 @@ const CartContext = createContext();
 export function CartProvider({ children }) {
   const [items, setItems] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
+  const [loaded, setLoaded] = useState(false);
 
   // Load cart from localStorage on mount
   useEffect(() => {
@@ -13,12 +14,15 @@ export function CartProvider({ children }) {
       const saved = localStorage.getItem('wrfitzz-cart');
       if (saved) setItems(JSON.parse(saved));
     } catch (e) { /* ignore */ }
+    setLoaded(true);
   }, []);
 
-  // Persist cart to localStorage
+  // Persist cart to localStorage, only after the saved cart has been read
+  // (otherwise the first empty render overwrites it).
   useEffect(() => {
+    if (!loaded) return;
     try { localStorage.setItem('wrfitzz-cart', JSON.stringify(items)); } catch (e) { /* ignore */ }
-  }, [items]);
+  }, [items, loaded]);
 
   const addItem = useCallback((product, size, color, quantity = 1) => {
     setItems(prev => {
@@ -57,7 +61,7 @@ export function CartProvider({ children }) {
   const totalPrice = items.reduce((sum, i) => sum + i.price * i.quantity, 0);
 
   return (
-    <CartContext.Provider value={{ items, isOpen, setIsOpen, addItem, removeItem, updateQuantity, clearCart, totalItems, totalPrice }}>
+    <CartContext.Provider value={{ items, loaded, isOpen, setIsOpen, addItem, removeItem, updateQuantity, clearCart, totalItems, totalPrice }}>
       {children}
     </CartContext.Provider>
   );
