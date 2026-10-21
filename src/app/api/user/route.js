@@ -96,17 +96,19 @@ export async function POST(request) {
       }
       const { data: existing } = await existingQuery.maybeSingle();
 
+      const conflictTarget = cleanEmail ? 'email' : 'phone';
       const upsertData = {
-        phone: cleanPhone || existing?.phone || `usr_${Date.now()}`,
-        name: name || existing?.name || null,
+        ...(existing?.id ? { id: existing.id } : {}),
         email: cleanEmail || existing?.email || null,
+        phone: cleanPhone || existing?.phone || null,
+        name: name || existing?.name || (cleanEmail ? cleanEmail.split('@')[0] : 'wrfitzz Member'),
         is_admin: existing?.is_admin || false, // Preserve admin flag
         updated_at: new Date().toISOString(),
       };
 
       const { data, error } = await supabase
         .from('users')
-        .upsert(upsertData, { onConflict: cleanPhone ? 'phone' : 'id' })
+        .upsert(upsertData, { onConflict: conflictTarget })
         .select()
         .single();
 
