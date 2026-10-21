@@ -1,38 +1,53 @@
 'use client';
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { auth } from '@/lib/firebase';
-import { RecaptchaVerifier, signInWithPhoneNumber, signOut } from 'firebase/auth';
+import {
+  signOut,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
+  updateProfile as updateFirebaseProfile,
+} from 'firebase/auth';
 
 const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [confirmationResult, setConfirmationResult] = useState(null);
-  const [pendingPhone, setPendingPhone] = useState('');
-  const [isFallbackMode, setIsFallbackMode] = useState(false);
 
-  // Sync / verify user session with Supabase and localStorage on mount
+  // Sync / verify user session with Supabase and localStorage
   const syncUserProfile = useCallback(async (phone, existingName, existingEmail) => {
     try {
-      const res = await fetch(`/api/user?phone=${encodeURIComponent(phone)}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (data?.user) {
-          const profile = {
-            phone: data.user.phone || phone,
-            name: data.user.name || existingName || 'wrfitzz Member',
-            email: data.user.email || existingEmail || '',
-            isAdmin: Boolean(data.user.is_admin),
-            joinedDate: new Date(data.user.created_at || Date.now()).toLocaleDateString('en-IN', {
-              month: 'long',
-              year: 'numeric',
-            }),
-          };
-          localStorage.setItem('wrfitzz-user', JSON.stringify(profile));
-          setUser(profile);
-          window.dispatchEvent(new Event('wrfitzz_user_updated'));
-          return profile;
+      const cleanPhone = phone ? String(phone).trim() : '';
+      const cleanEmail = existingEmail ? String(existingEmail).trim() : '';
+      const queryParam = cleanEmail
+        ? `email=${encodeURIComponent(cleanEmail)}`
+        : cleanPhone
+        ? `phone=${encodeURIComponent(cleanPhone)}`
+        : '';
+
+      if (queryParam) {
+        const res = await fetch(`/api/user?${queryParam}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.user) {
+            const profile = {
+              phone: data.user.phone || cleanPhone || '',
+              name: data.user.name || existingName || (cleanEmail ? cleanEmail.split('@')[0] : 'wrfitzz Member'),
+              email: data.user.email || cleanEmail || '',
+              isAdmin: Boolean(data.user.is_admin),
+              joinedDate: new Date(data.user.created_at || Date.now()).toLocaleDateString('en-IN', {
+                month: 'long',
+                year: 'numeric',
+              }),
+            };
+            localStorage.setItem('wrfitzz-user', JSON.stringify(profile));
+            setUser(profile);
+            window.dispatchEvent(new Event('wrfitzz_user_updated'));
+            return profile;
+          }
         }
       }
     } catch (e) {
@@ -41,8 +56,8 @@ export function AuthProvider({ children }) {
 
     // Default fallback profile
     const fallback = {
-      phone,
-      name: existingName || 'wrfitzz Member',
+      phone: phone || '',
+      name: existingName || (existingEmail ? existingEmail.split('@')[0] : 'wrfitzz Member'),
       email: existingEmail || '',
       isAdmin: false,
       joinedDate: new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }),
@@ -59,8 +74,7 @@ export function AuthProvider({ children }) {
       if (saved) {
         const parsed = JSON.parse(saved);
         setUser(parsed);
-        if (parsed.phone) {
-          // Check latest admin status in background
+        if (parsed.email || parsed.phone) {
           syncUserProfile(parsed.phone, parsed.name, parsed.email);
         }
       }
@@ -71,156 +85,176 @@ export function AuthProvider({ children }) {
     }
   }, [syncUserProfile]);
 
-  // Setup reCAPTCHA Verifier
-  const setupRecaptcha = useCallback((containerId = 'recaptcha-container') => {
-    if (typeof window === 'undefined' || !auth) return null;
-
+  // 1. Google 1-Click Sign-In
+  const signInWithGoogle = useCallback(async () => {
+    if (!auth) throw new Error('Firebase Auth is not initialized');
     try {
-      if (window.recaptchaVerifier) {
-        window.recaptchaVerifier.clear();
-        window.recaptchaVerifier = null;
-      }
-    } catch (e) {
-      window.recaptchaVerifier = null;
-    }
-
-    const container = document.getElementById(containerId);
-    if (container) {
-      container.innerHTML = '';
-    }
-
-    const verifier = new RecaptchaVerifier(auth, containerId, {
-      size: 'invisible',
-      callback: () => {},
-      'expired-callback': () => {
-        try {
-          if (window.recaptchaVerifier) {
-            window.recaptchaVerifier.clear();
-            window.recaptchaVerifier = null;
-          }
-        } catch (e) {}
-      },
-    });
-
-    window.recaptchaVerifier = verifier;
-    return verifier;
-  }, []);
-
-  // Send Phone OTP
-  const sendOtp = useCallback(async (rawPhone, containerId = 'recaptcha-container') => {
-    // Format Indian phone number to E.164
-    let formattedPhone = rawPhone.trim().replace(/\s+/g, '');
-    if (!formattedPhone.startsWith('+')) {
-      const cleanDigits = formattedPhone.replace(/\D/g, '');
-      if (cleanDigits.length === 10) {
-        formattedPhone = `+91${cleanDigits}`;
-      } else if (cleanDigits.length === 12 && cleanDigits.startsWith('91')) {
-        formattedPhone = `+${cleanDigits}`;
-      }
-    }
-
-    setPendingPhone(formattedPhone);
-
-    try {
-      if (!auth) throw new Error('Firebase Auth is not initialized');
-      const appVerifier = setupRecaptcha(containerId);
-      const confirmation = await signInWithPhoneNumber(auth, formattedPhone, appVerifier);
-      setConfirmationResult(confirmation);
-      setIsFallbackMode(false);
-      return { success: true, method: 'firebase' };
-    } catch (err) {
-      console.error('Firebase signInWithPhoneNumber error:', err);
-      const code = (err?.code || '').toLowerCase();
-      const msg = (err?.message || '').toLowerCase();
-
-      // Case 1: Unauthorized Domain (e.g. wrfitzz.com not in Firebase Authorised domains)
-      if (code.includes('unauthorized-domain') || msg.includes('unauthorized domain') || code.includes('app-not-authorized')) {
-        throw new Error(
-          'Domain not authorized: Please open Firebase Console > Authentication > Settings > Authorised domains, click "Add domain" and add "wrfitzz.com" (without www).'
-        );
-      }
-
-      // Case 2: Phone provider not enabled
-      if (code.includes('operation-not-allowed') || msg.includes('operation-not-allowed')) {
-        throw new Error(
-          'Phone Sign-In is not enabled. In Firebase Console, go to Authentication > Sign-in method, click "Phone" and enable it.'
-        );
-      }
-
-      // Case 3: Billing not enabled on Firebase project (Spark plan blocks real carrier SMS)
-      if (code.includes('billing-not-enabled') || msg.includes('billing') || code.includes('quota-exceeded')) {
-        throw new Error(
-          'Real carrier SMS requires the Firebase Blaze plan. In Firebase Console, click "Upgrade" in the bottom-left corner to activate Blaze (free tier includes 10,000 SMS/month), or add this number in Authentication > Sign-in method > Phone > "Phone numbers for testing".'
-        );
-      }
-
-      // Case 4: reCAPTCHA failed
-      if (code.includes('captcha-check-failed') || msg.includes('captcha')) {
-        throw new Error('reCAPTCHA verification failed. Please reload the page and try again.');
-      }
-
-      // Case 5: Invalid Phone Number
-      if (code.includes('invalid-phone-number') || msg.includes('invalid-phone-number')) {
-        throw new Error('Invalid phone number format. Please enter a valid 10-digit mobile number.');
-      }
-
-      // Case 6: Too many requests
-      if (code.includes('too-many-requests') || msg.includes('too-many-requests')) {
-        throw new Error('Too many requests. Please wait a few minutes before trying again.');
-      }
-
-      throw err;
-    }
-  }, [setupRecaptcha]);
-
-  // Verify OTP
-  const verifyOtp = useCallback(async (otpCode, pendingName = '', pendingEmail = '') => {
-    let verifiedPhone = pendingPhone;
-
-    if (isFallbackMode) {
-      // Test code verification (accepts 123456 or 000000)
-      if (otpCode !== '123456' && otpCode !== '000000') {
-        throw new Error('Invalid code. For test mode, enter verification code: 123456');
-      }
-    } else {
-      if (!confirmationResult) {
-        throw new Error('No pending OTP request found. Please request OTP first.');
-      }
-      const cred = await confirmationResult.confirm(otpCode);
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      const cred = await signInWithPopup(auth, provider);
       const firebaseUser = cred.user;
-      verifiedPhone = firebaseUser.phoneNumber || pendingPhone;
-    }
 
-    // Register or sync user with Supabase
-    try {
-      await fetch('/api/user', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: verifiedPhone,
-          name: pendingName || null,
-          email: pendingEmail || null,
-        }),
-      });
+      const userEmail = firebaseUser.email || '';
+      const userName = firebaseUser.displayName || (userEmail ? userEmail.split('@')[0] : 'wrfitzz Member');
+      const userPhone = firebaseUser.phoneNumber || '';
+
+      // Register or sync user with backend
+      try {
+        await fetch('/api/user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phone: userPhone,
+            name: userName,
+            email: userEmail,
+          }),
+        });
+      } catch (e) {
+        console.warn('Could not register Google user to backend:', e);
+      }
+
+      const profile = await syncUserProfile(userPhone, userName, userEmail);
+      return { success: true, user: profile };
     } catch (err) {
-      console.warn('Could not register user to Supabase:', err);
-    }
+      console.error('Firebase Google Sign-In error:', err);
+      const code = (err?.code || '').toLowerCase();
 
-    const profile = await syncUserProfile(verifiedPhone, pendingName, pendingEmail);
-    return profile;
-  }, [confirmationResult, isFallbackMode, pendingPhone, syncUserProfile]);
+      if (code.includes('popup-closed-by-user') || code.includes('cancelled-popup-request')) {
+        throw new Error('Google sign-in popup was closed. Please try again.');
+      }
+      if (code.includes('operation-not-allowed')) {
+        throw new Error('Google Sign-In is not enabled in Firebase Console. Please enable Google under Authentication > Sign-in method.');
+      }
+      if (code.includes('unauthorized-domain')) {
+        throw new Error('Domain not authorized. Please add "wrfitzz.com" to Firebase Console > Authentication > Settings > Authorised domains.');
+      }
+      throw new Error(err.message || 'Failed to sign in with Google. Please try again.');
+    }
+  }, [syncUserProfile]);
+
+  // 2. Email & Password Sign-In
+  const signInWithEmail = useCallback(async (email, password) => {
+    if (!auth) throw new Error('Firebase Auth is not initialized');
+    if (!email || !password) throw new Error('Please enter both email and password.');
+
+    try {
+      const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
+      const firebaseUser = cred.user;
+
+      const profile = await syncUserProfile(
+        firebaseUser.phoneNumber || '',
+        firebaseUser.displayName || email.split('@')[0],
+        firebaseUser.email || email.trim()
+      );
+      return { success: true, user: profile };
+    } catch (err) {
+      console.error('Firebase Email Sign-In error:', err);
+      const code = (err?.code || '').toLowerCase();
+
+      if (code.includes('user-not-found') || code.includes('wrong-password') || code.includes('invalid-credential')) {
+        throw new Error('Invalid email or password. Please verify your credentials or create an account.');
+      }
+      if (code.includes('invalid-email')) {
+        throw new Error('Please enter a valid email address.');
+      }
+      if (code.includes('operation-not-allowed')) {
+        throw new Error('Email/Password is not enabled in Firebase Console. Please enable it under Authentication > Sign-in method.');
+      }
+      if (code.includes('too-many-requests')) {
+        throw new Error('Too many failed attempts. Please reset your password or wait a few minutes.');
+      }
+      throw new Error(err.message || 'Failed to sign in. Please verify your credentials.');
+    }
+  }, [syncUserProfile]);
+
+  // 3. Email & Password Sign-Up (New Account)
+  const signUpWithEmail = useCallback(async (email, password, name = '') => {
+    if (!auth) throw new Error('Firebase Auth is not initialized');
+    if (!email || !password) throw new Error('Please provide an email and password.');
+    if (password.length < 6) throw new Error('Password must be at least 6 characters.');
+
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
+      const firebaseUser = cred.user;
+
+      if (name) {
+        try {
+          await updateFirebaseProfile(firebaseUser, { displayName: name });
+        } catch (e) {}
+      }
+
+      const userName = name || email.split('@')[0];
+
+      // Register user with backend
+      try {
+        await fetch('/api/user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phone: '',
+            name: userName,
+            email: email.trim(),
+          }),
+        });
+      } catch (e) {
+        console.warn('Could not register user in backend:', e);
+      }
+
+      const profile = await syncUserProfile('', userName, email.trim());
+      return { success: true, user: profile };
+    } catch (err) {
+      console.error('Firebase Email Sign-Up error:', err);
+      const code = (err?.code || '').toLowerCase();
+
+      if (code.includes('email-already-in-use')) {
+        throw new Error('An account with this email already exists. Please sign in instead.');
+      }
+      if (code.includes('invalid-email')) {
+        throw new Error('Please enter a valid email address.');
+      }
+      if (code.includes('weak-password')) {
+        throw new Error('Password is too weak. Please use at least 6 characters.');
+      }
+      if (code.includes('operation-not-allowed')) {
+        throw new Error('Email/Password is not enabled in Firebase Console. Please enable it under Authentication > Sign-in method.');
+      }
+      throw new Error(err.message || 'Failed to create account. Please try again.');
+    }
+  }, [syncUserProfile]);
+
+  // 4. Password Reset Email
+  const sendPasswordReset = useCallback(async (email) => {
+    if (!auth) throw new Error('Firebase Auth is not initialized');
+    if (!email) throw new Error('Please enter your email address.');
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+      return { success: true };
+    } catch (err) {
+      console.error('Password reset error:', err);
+      const code = (err?.code || '').toLowerCase();
+      if (code.includes('user-not-found')) {
+        throw new Error('No account found with this email address.');
+      }
+      if (code.includes('invalid-email')) {
+        throw new Error('Please enter a valid email address.');
+      }
+      throw new Error(err.message || 'Failed to send password reset email.');
+    }
+  }, []);
 
   // Update profile details (Name & Email)
   const updateProfile = useCallback(async (details) => {
-    if (!user?.phone) return;
+    const identifier = user?.email || user?.phone;
+    if (!identifier) return;
+
     try {
       const res = await fetch('/api/user', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          phone: user.phone,
+          phone: user.phone || '',
+          email: details.email || user.email || '',
           name: details.name,
-          email: details.email,
         }),
       });
 
@@ -248,9 +282,6 @@ export function AuthProvider({ children }) {
     } catch (e) {}
     localStorage.removeItem('wrfitzz-user');
     setUser(null);
-    setConfirmationResult(null);
-    setIsFallbackMode(false);
-    setPendingPhone('');
     window.dispatchEvent(new Event('wrfitzz_user_updated'));
   }, []);
 
@@ -259,13 +290,13 @@ export function AuthProvider({ children }) {
       value={{
         user,
         loading,
-        sendOtp,
-        verifyOtp,
+        signInWithGoogle,
+        signInWithEmail,
+        signUpWithEmail,
+        sendPasswordReset,
         updateProfile,
         syncUserProfile,
         logout,
-        isFallbackMode,
-        pendingPhone,
       }}
     >
       {children}
