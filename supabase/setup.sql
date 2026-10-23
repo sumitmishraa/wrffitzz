@@ -133,7 +133,7 @@ insert into public.shop_products (id, slug, name, description, price, compare_pr
 on conflict (id) do nothing;
 
 insert into public.shop_settings (id, data) values
-  ('store', '{"whatsapp_number":"919845000000","contact_phone":"919845000000","contact_email":"care@wrfitzz.in","store_address":"Indiranagar, Bangalore, Karnataka","store_hours":"Monday to Saturday, 10am to 8pm","instagram_url":""}'::jsonb)
+  ('store', '{"whatsapp_number":"918618258701","contact_phone":"918618258701","contact_email":"wrf102167@gmail.com","store_address":"Halasuru, Bangalore, Karnataka","store_hours":"Monday to Saturday, 10am to 8pm","instagram_url":"https://www.instagram.com/wardrobe_fitzz/"}'::jsonb)
 on conflict (id) do nothing;
 
 -- Done. Refresh /admin: orders, products and store details now save here.

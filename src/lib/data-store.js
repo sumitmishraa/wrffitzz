@@ -352,12 +352,12 @@ export async function updateStoreOrder(id, patch, note) {
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
 
 export const DEFAULT_SETTINGS = {
-  whatsapp_number: '919845000000',
-  contact_phone: '919845000000',
-  contact_email: 'care@wrfitzz.in',
-  store_address: 'Indiranagar, Bangalore, Karnataka',
+  whatsapp_number: '918618258701',
+  contact_phone: '918618258701',
+  contact_email: 'wrf102167@gmail.com',
+  store_address: 'Halasuru, Bangalore, Karnataka',
   store_hours: 'Monday to Saturday, 10am to 8pm',
-  instagram_url: '',
+  instagram_url: 'https://www.instagram.com/wardrobe_fitzz/',
 };
 
 const indianNumber = (v, label) => {
